@@ -30,9 +30,9 @@ class MBEnsemble():
         self.loss = nn.MSELoss()
         
     def train(self, dataloader):
-        model = random.sample(self.ensemble, k=1)[0]
         for epoch in range(self.n_updates):
             epoch_losses = []
+            model = random.sample(self.ensemble, k=1)[0]
             for (s, a, r, ns, d) in dataloader:
                 self.optimizer.zero_grad()
                 prediction = model(s,a)

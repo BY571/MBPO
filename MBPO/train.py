@@ -27,6 +27,7 @@ def get_config():
     
     ## MB params
     parser.add_argument("--n_updates", type=int, default=10, help="")
+    parser.add_argument("--mb_buffer_size", type=int, default=100000, help="")
     parser.add_argument("--n_rollouts", type=int, default=256, help="")
     parser.add_argument("--ensembles", type=int, default=5, help="")
     parser.add_argument("--hidden_size", type=int, default=256, help="")
@@ -66,7 +67,7 @@ def train(config):
 
         buffer = ReplayBuffer(buffer_size=config.buffer_size, batch_size=config.batch_size, device=device)
         
-        mb_buffer = MBReplayBuffer(buffer_size=50000,
+        mb_buffer = MBReplayBuffer(buffer_size=config.mb_buffer_size,
                                    batch_size=config.n_rollouts,
                                    device=device)
 
