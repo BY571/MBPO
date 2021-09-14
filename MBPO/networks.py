@@ -110,7 +110,7 @@ class DynamicsModel(nn.Module):
         torch.manual_seed(seed)
         self.fc1 = nn.Linear(state_size + action_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
-        self.fc3 = nn.LInear(hidden_size, hidden_size)
+        self.fc3 = nn.Linear(hidden_size, hidden_size)
         self.mu = nn.Linear(hidden_size, state_size + 1)
         self.log_var = nn.Linear(hidden_size, state_size + 1)
         
@@ -118,7 +118,7 @@ class DynamicsModel(nn.Module):
         x = torch.cat((state, action), dim=-1)
         x = torch.relu(self.fc1(x))
         x = torch.relu(self.fc2(x))
-        x = torch.relu(self.fc3)
+        x = torch.relu(self.fc3(x))
         
         mu = self.mu(x)
         log_var = self.log_var(x)
