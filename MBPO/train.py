@@ -24,13 +24,14 @@ def get_config():
     parser.add_argument("--log_video", type=int, default=0, help="Log agent behaviour to wanbd when set to 1, default: 0")
     parser.add_argument("--save_every", type=int, default=100, help="Saves the network every x epochs, default: 25")
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size, default: 256")
+    parser.add_argument("--npolicy_updates", type=int, default=20, help="")
     
     ## MB params
     parser.add_argument("--n_updates", type=int, default=10, help="")
     parser.add_argument("--mb_buffer_size", type=int, default=100000, help="")
-    parser.add_argument("--n_rollouts", type=int, default=256, help="")
-    parser.add_argument("--ensembles", type=int, default=5, help="")
-    parser.add_argument("--hidden_size", type=int, default=256, help="")
+    parser.add_argument("--n_rollouts", type=int, default=400, help="")
+    parser.add_argument("--ensembles", type=int, default=7, help="")
+    parser.add_argument("--hidden_size", type=int, default=200, help="")
     parser.add_argument("--kstep", type=int, default=1, help="")
     parser.add_argument("--mb_lr", type=float, default=3e-4, help="")
     
@@ -87,7 +88,8 @@ def train(config):
                 next_state, reward, done, _ = env.step(action)
                 mb_buffer.add(state, action, reward, next_state, done)
                 ensemble.do_rollouts(buffer=buffer, env_buffer=mb_buffer, policy=agent)
-                policy_loss, alpha_loss, bellmann_error1, bellmann_error2, current_alpha = agent.learn(steps, buffer.sample(), gamma=0.99)
+                for _ in range(config.npolicy_updates):
+                    policy_loss, alpha_loss, bellmann_error1, bellmann_error2, current_alpha = agent.learn(steps, buffer.sample(), gamma=0.99)
                 state = next_state
                 rewards += reward
                 episode_steps += 1
