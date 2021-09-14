@@ -41,7 +41,7 @@ class MBEnsemble():
                 loss.backward()
                 self.optimizer.step()
                 epoch_losses.append(loss.item())
-        reward_diff = r[-1, :] - prediction[-1, -1].detach()
+        reward_diff = (r - prediction.detach()).mean()
         return np.mean(epoch_losses), reward_diff.item()
     
     def do_rollouts(self, buffer, env_buffer, policy):

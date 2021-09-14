@@ -27,7 +27,7 @@ def get_config():
     parser.add_argument("--npolicy_updates", type=int, default=20, help="")
     
     ## MB params
-    parser.add_argument("--n_updates", type=int, default=10, help="")
+    parser.add_argument("--n_updates", type=int, default=5, help="")
     parser.add_argument("--mb_buffer_size", type=int, default=100000, help="")
     parser.add_argument("--n_rollouts", type=int, default=400, help="")
     parser.add_argument("--ensembles", type=int, default=7, help="")
