@@ -1,0 +1,15 @@
+2021-09-14 18:39:12,870 INFO    MainThread:112426 [wandb_setup.py:_flush():70] setting env: {}
+2021-09-14 18:39:12,870 INFO    MainThread:112426 [wandb_setup.py:_flush():70] multiprocessing start_methods=fork,spawn,forkserver
+2021-09-14 18:39:12,870 INFO    MainThread:112426 [wandb_setup.py:_flush():70] setting login settings: {}
+2021-09-14 18:39:12,871 INFO    MainThread:112426 [wandb_init.py:_log_setup():303] Logging user logs to /home/sebastian/Documents/MBPO/MBPO/wandb/run-20210914_183912-1ggv65lg/logs/debug.log
+2021-09-14 18:39:12,871 INFO    MainThread:112426 [wandb_init.py:_log_setup():304] Logging internal logs to /home/sebastian/Documents/MBPO/MBPO/wandb/run-20210914_183912-1ggv65lg/logs/debug-internal.log
+2021-09-14 18:39:13,902 INFO    MainThread:112426 [wandb_run.py:_console_start():1218] atexit reg
+2021-09-14 18:39:13,902 INFO    MainThread:112426 [wandb_run.py:_redirect():1085] redirect: SettingsConsole.REDIRECT
+2021-09-14 18:39:13,902 INFO    MainThread:112426 [wandb_run.py:_redirect():1088] Redirecting console.
+2021-09-14 18:39:13,902 INFO    MainThread:112426 [redirect.py:install():204] install start
+2021-09-14 18:39:13,903 INFO    MainThread:112426 [redirect.py:install():219] install stop
+2021-09-14 18:39:13,903 INFO    MainThread:112426 [redirect.py:install():204] install start
+2021-09-14 18:39:13,903 INFO    MainThread:112426 [redirect.py:install():219] install stop
+2021-09-14 18:39:13,903 INFO    MainThread:112426 [wandb_run.py:_redirect():1132] Redirects installed.
+2021-09-14 18:39:18,377 INFO    MainThread:112426 [wandb_watch.py:watch():35] Watching
+2021-09-14 18:39:29,097 INFO    MainThread:112426 [wandb_run.py:finish():912] finishing run sebastian-dittert/MBPO/1ggv65lg
