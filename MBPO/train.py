@@ -36,7 +36,7 @@ def get_config():
     parser.add_argument("--mb_lr", type=float, default=3e-4, help="")
     
     args = parser.parse_args()
-    return args
+    return args 
 
 def train(config):
     np.random.seed(config.seed)

@@ -28,6 +28,7 @@ class MBEnsemble():
         self.kstep = config.kstep
         
         self.loss = nn.MSELoss()
+        self.loss = nn.GaussianNLLLoss()
         
     def train(self, dataloader):
         for epoch in range(self.n_updates):
@@ -35,9 +36,9 @@ class MBEnsemble():
             model = random.sample(self.ensemble, k=1)[0]
             for (s, a, r, ns, d) in dataloader:
                 self.optimizer.zero_grad()
-                prediction = model(s,a)
+                prediction, pred = model(s,a)
                 targets = torch.cat((ns,r), dim=-1)
-                loss = self.loss(prediction.float(), targets.to(self.device))
+                loss = self.loss(pred[0].float(), targets.to(self.device), pred[1].float())
                 loss.backward()
                 self.optimizer.step()
                 epoch_losses.append(loss.item())
@@ -52,7 +53,7 @@ class MBEnsemble():
             
             actions = policy.get_action(states)
             
-            predictions = model(torch.from_numpy(states).float().to(self.device),
+            predictions, _ = model(torch.from_numpy(states).float().to(self.device),
                                 torch.from_numpy(actions).float().to(self.device))
             next_states = predictions[:, :-1].detach().cpu().numpy()
             rewards = predictions[:, -1].detach().cpu().numpy()
