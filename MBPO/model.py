@@ -3,6 +3,7 @@ import torch
 import torch.optim as optim
 import torch.nn.functional as F
 import torch.nn as nn
+from torch.distributions import Normal
 import random
 import numpy as np
 
@@ -38,8 +39,8 @@ class MBEnsemble():
                 self.optimizer.zero_grad()
                 prob_prediction, _, dist = model(s,a)
                 targets = torch.cat((ns,r), dim=-1)
-                loss = - dist.log_prob(targets)
-                #self.loss(pred[0].float(), targets.to(self.device), pred[1].float())
+                loss = - dist.log_prob(targets).mean()
+
                 loss.backward()
                 self.optimizer.step()
                 epoch_losses.append(loss.item())
@@ -51,13 +52,23 @@ class MBEnsemble():
         states, _, _, _, _ = env_buffer.sample(self.n_rollouts)
         states = states.cpu().numpy()
         for k in range(self.kstep):
-            model = random.sample(self.ensemble, k=1)[0]
+            #model = random.sample(self.ensemble, k=1)[0]
             actions = policy.get_action(states)
-            
-            predictions, _, _ = model(torch.from_numpy(states).float().to(self.device),
-                                torch.from_numpy(actions).float().to(self.device))
-            next_states = predictions[:, :-1].detach().cpu().numpy()
-            rewards = predictions[:, -1].detach().cpu().numpy()
+            mus = []
+            log_vars = []
+            with torch.no_grad():
+                for model in self.ensemble:
+                    _, (mu, log_var), _ = model(torch.from_numpy(states).float().to(self.device),
+                                            torch.from_numpy(actions).float().to(self.device))
+                    mus.append(mu)
+                    log_vars.append(log_var)
+            mu = torch.cat(mus, dim=-1).mean()
+            log_var = torch.cat(log_vars, dim=-1).mean()
+            dist = Normal(mu, log_var)
+            predictions = dist.sample()
+                
+            next_states = predictions[:, :-1].cpu().numpy()
+            rewards = predictions[:, -1].cpu().numpy()
             dones = torch.zeros(rewards.shape)
             for (s, a, r, ns, d) in zip(states, actions, rewards, next_states, dones):
                 buffer.add(s, a, r, ns, d)
