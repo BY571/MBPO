@@ -64,8 +64,8 @@ class MBEnsemble():
                     ensemble_mu += mu
                     ensemble_log_var += log_var
 
-            dist = Normal(ensemble_mu/len(self.n_ensembles),
-                          ensemble_log_var/len(self.n_ensembles))
+            dist = Normal(ensemble_mu/self.n_ensembles,
+                          ensemble_log_var/self.n_ensembles)
             predictions = dist.sample()
                 
             next_states = predictions[:, :-1].cpu().numpy()
