@@ -105,7 +105,7 @@ class Critic(nn.Module):
     
 class DynamicsModel(nn.Module):
 
-    def __init__(self, state_size, action_size, hidden_size=32, seed=1):
+    def __init__(self, state_size, action_size, hidden_size=32, seed=1, log_std_min=-20, log_std_max=2):
         super(DynamicsModel, self).__init__()
         torch.manual_seed(seed)
         self.fc1 = nn.Linear(state_size + action_size, hidden_size)
@@ -114,6 +114,9 @@ class DynamicsModel(nn.Module):
         self.mu = nn.Linear(hidden_size, state_size + 1)
         self.log_var = nn.Linear(hidden_size, state_size + 1)
         
+        self.log_std_min = log_std_min
+        self.log_std_max = log_std_max
+        
     def forward(self, state, action):
         x = torch.cat((state, action), dim=-1)
         x = torch.tanh(self.fc1(x))
@@ -121,9 +124,9 @@ class DynamicsModel(nn.Module):
         x = torch.tanh(self.fc3(x))
         
         mu = self.mu(x)
-        log_var = self.log_var(x)
-        
+
+        log_var = torch.clamp(self.log_var(x), self.log_std_min, self.log_std_max)
         dist = Normal(mu, log_var.exp())
         output = dist.sample()
         
-        return output, (mu, log_var.exp()), dist
+        return output, (mu, log_var), dist

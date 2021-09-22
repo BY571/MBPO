@@ -10,7 +10,7 @@ import numpy as np
 
 class MBEnsemble():
     def __init__(self, state_size, action_size, config, device):
-        
+                
         self.device = device
         self.ensemble = []
         parameter = []
@@ -38,10 +38,12 @@ class MBEnsemble():
             model = random.sample(self.ensemble, k=1)[0]
             for (s, a, r, ns, d) in dataloader:
                 self.optimizer.zero_grad()
-                prob_prediction, _, dist = model(s,a)
+                prob_prediction, (mu, log_var), _ = model(s,a)
+                inv_var = (-log_var).exp()
                 targets = torch.cat((ns,r), dim=-1)
-                loss = - dist.log_prob(targets).mean()
-
+                #loss = - dist.log_prob(targets).mean()
+                loss = ((mu - targets.to(self.device))**2 * inv_var).mean(-1).mean(-1) + log_var.mean(-1).mean(-1)
+                
                 loss.backward()
                 self.optimizer.step()
                 epoch_losses.append(loss.item())
@@ -62,7 +64,7 @@ class MBEnsemble():
                     _, (mu, log_var), _ = model(torch.from_numpy(states).float().to(self.device),
                                             torch.from_numpy(actions).float().to(self.device))
                     ensemble_mu += mu
-                    ensemble_log_var += log_var
+                    ensemble_log_var += log_var.exp()
 
             dist = Normal(ensemble_mu/self.n_ensembles,
                           ensemble_log_var/self.n_ensembles)
