@@ -77,7 +77,7 @@ def train(config):
         if config.log_video:
             env = gym.wrappers.Monitor(env, './video', video_callable=lambda x: x%10==0, force=True)
         for i in range(1, config.episodes+1):
-            loss, reward_diff  = ensemble.train(mb_buffer.get_dataloader())
+            loss, reward_diff  = ensemble.train(mb_buffer.get_dataloader(batch_size=32))
             wandb.log({"Episode": i, "MB Loss": loss, "Reward-diff": reward_diff}, step=steps)
             state = env.reset()
             episode_steps = 0
