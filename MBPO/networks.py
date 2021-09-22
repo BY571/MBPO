@@ -114,14 +114,15 @@ class DynamicsModel(nn.Module):
         self.mu = nn.Linear(hidden_size, state_size + 1)
         self.log_var = nn.Linear(hidden_size, state_size + 1)
         
+        self.activation = nn.SiLU()
         self.log_std_min = log_std_min
         self.log_std_max = log_std_max
         
     def forward(self, state, action):
         x = torch.cat((state, action), dim=-1)
-        x = torch.tanh(self.fc1(x))
-        x = torch.tanh(self.fc2(x))
-        x = torch.tanh(self.fc3(x))
+        x = self.activation(self.fc1(x))
+        x = self.activation(self.fc2(x))
+        x = self.activation(self.fc3(x))
         
         mu = self.mu(x)
 
