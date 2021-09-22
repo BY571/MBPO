@@ -124,6 +124,6 @@ class DynamicsModel(nn.Module):
         log_var = self.log_var(x)
         
         dist = Normal(mu, log_var.exp())
-        output = dist.rsample()
+        output = dist.sample()
         
-        return output, (mu, log_var.exp())
+        return output, (mu, log_var.exp()), dist

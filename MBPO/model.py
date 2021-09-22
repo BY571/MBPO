@@ -27,8 +27,8 @@ class MBEnsemble():
         self.n_rollouts = config.n_rollouts
         self.kstep = config.kstep
         
-        self.loss = nn.MSELoss()
-        self.loss = nn.GaussianNLLLoss()
+        # self.loss = nn.MSELoss()
+        # self.loss = nn.GaussianNLLLoss()
         
     def train(self, dataloader):
         for epoch in range(self.n_updates):
@@ -36,24 +36,25 @@ class MBEnsemble():
             model = random.sample(self.ensemble, k=1)[0]
             for (s, a, r, ns, d) in dataloader:
                 self.optimizer.zero_grad()
-                prediction, pred = model(s,a)
+                prob_prediction, _, dist = model(s,a)
                 targets = torch.cat((ns,r), dim=-1)
-                loss = self.loss(pred[0].float(), targets.to(self.device), pred[1].float())
+                loss = - dist.log_prob(targets)
+                #self.loss(pred[0].float(), targets.to(self.device), pred[1].float())
                 loss.backward()
                 self.optimizer.step()
                 epoch_losses.append(loss.item())
-        reward_diff = (r - prediction[:, -1].detach()).mean()
+        reward_diff = (r - prob_prediction[:, -1].detach()).mean()
         return np.mean(epoch_losses), reward_diff.item()
     
     def do_rollouts(self, buffer, env_buffer, policy):
-        model = random.sample(self.ensemble, k=1)[0]
+        
         states, _, _, _, _ = env_buffer.sample(self.n_rollouts)
         states = states.cpu().numpy()
         for k in range(self.kstep):
-            
+            model = random.sample(self.ensemble, k=1)[0]
             actions = policy.get_action(states)
             
-            predictions, _ = model(torch.from_numpy(states).float().to(self.device),
+            predictions, _, _ = model(torch.from_numpy(states).float().to(self.device),
                                 torch.from_numpy(actions).float().to(self.device))
             next_states = predictions[:, :-1].detach().cpu().numpy()
             rewards = predictions[:, -1].detach().cpu().numpy()
