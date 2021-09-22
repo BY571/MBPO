@@ -31,7 +31,7 @@ class MBEnsemble():
         
     def train(self, dataloader):
         epoch_losses = []
-        for i in self.n_updates:
+        for i in range(self.n_updates):
             for model in self.ensemble:
                 for (s, a, r, ns, d) in dataloader:
                     self.optimizer.zero_grad()
