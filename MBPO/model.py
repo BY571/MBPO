@@ -14,7 +14,8 @@ class MBEnsemble():
         self.device = device
         self.ensemble = []
         parameter = []
-        for i in range(config.ensembles):
+        self.n_ensembles = config.ensembles
+        for i in range(self.n_ensembles):
             dynamics = DynamicsModel(state_size=state_size,
                                                action_size=action_size,
                                                hidden_size=config.hidden_size,
@@ -54,17 +55,17 @@ class MBEnsemble():
         for k in range(self.kstep):
             #model = random.sample(self.ensemble, k=1)[0]
             actions = policy.get_action(states)
-            mus = []
-            log_vars = []
+            ensemble_mu = 0
+            ensemble_log_var = 0
             with torch.no_grad():
                 for model in self.ensemble:
                     _, (mu, log_var), _ = model(torch.from_numpy(states).float().to(self.device),
                                             torch.from_numpy(actions).float().to(self.device))
-                    mus.append(mu)
-                    log_vars.append(log_var)
-            mu = torch.cat(mus, dim=-1).mean()
-            log_var = torch.cat(log_vars, dim=-1).mean()
-            dist = Normal(mu, log_var)
+                    ensemble_mu += mu
+                    ensemble_log_var += log_var
+
+            dist = Normal(ensemble_mu/len(self.n_ensembles),
+                          ensemble_log_var/len(self.n_ensembles))
             predictions = dist.sample()
                 
             next_states = predictions[:, :-1].cpu().numpy()
