@@ -30,20 +30,20 @@ class MBEnsemble():
         self.kstep = config.kstep
         
     def train(self, dataloader):
-        for model in self.ensemble:
-            epoch_losses = []
-            # model = random.sample(self.ensemble, k=1)[0]
-            for (s, a, r, ns, d) in dataloader:
-                self.optimizer.zero_grad()
-                prob_prediction, (mu, log_var), _ = model(s,a)
-                inv_var = (-log_var).exp()
-                targets = torch.cat((ns,r), dim=-1)
-                loss = ((mu - targets.to(self.device))**2 * inv_var).mean(-1).mean(-1) + log_var.mean(-1).mean(-1)
-                
-                loss.backward()
-                self.optimizer.step()
-                epoch_losses.append(loss.item())
-        reward_diff = (r - prob_prediction[:, -1].detach()).mean()
+        epoch_losses = []
+        for i in self.n_updates:
+            for model in self.ensemble:
+                for (s, a, r, ns, d) in dataloader:
+                    self.optimizer.zero_grad()
+                    prob_prediction, (mu, log_var), _ = model(s,a)
+                    inv_var = (-log_var).exp()
+                    targets = torch.cat((ns,r), dim=-1)
+                    loss = ((mu - targets.to(self.device))**2 * inv_var).mean(-1).mean(-1) + log_var.mean(-1).mean(-1)
+                    
+                    loss.backward()
+                    self.optimizer.step()
+                    epoch_losses.append(loss.item())
+            reward_diff = (r - prob_prediction[:, -1].detach()).mean()
         return np.mean(epoch_losses), reward_diff.item()
     
     def do_rollouts(self, buffer, env_buffer, policy):

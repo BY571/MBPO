@@ -19,7 +19,7 @@ def get_config():
     parser.add_argument("--run_name", type=str, default="MBPO-SAC", help="Run name, default: MBPO-SAC")
     parser.add_argument("--env", type=str, default="Pendulum-v0", help="Gym environment name, default: Pendulum-v0")
     parser.add_argument("--episodes", type=int, default=100, help="Number of episodes, default: 100")
-    parser.add_argument("--buffer_size", type=int, default=100_000, help="Maximal training dataset size, default: 100_000")
+    parser.add_argument("--buffer_size", type=int, default=200_000, help="Maximal training dataset size, default: 100_000")
     parser.add_argument("--seed", type=int, default=1, help="Seed, default: 1")
     parser.add_argument("--log_video", type=int, default=0, help="Log agent behaviour to wanbd when set to 1, default: 0")
     parser.add_argument("--save_every", type=int, default=100, help="Saves the network every x epochs, default: 25")
@@ -28,7 +28,7 @@ def get_config():
     
     ## MB params
     parser.add_argument("--n_updates", type=int, default=5, help="")
-    parser.add_argument("--mb_buffer_size", type=int, default=100000, help="")
+    parser.add_argument("--mb_buffer_size", type=int, default=100_000, help="")
     parser.add_argument("--n_rollouts", type=int, default=400, help="")
     parser.add_argument("--ensembles", type=int, default=7, help="")
     parser.add_argument("--hidden_size", type=int, default=200, help="")
@@ -96,8 +96,6 @@ def train(config):
                 if done:
                     break
 
-            
-
             average10.append(rewards)
             total_steps += episode_steps
             print("Episode: {} | Reward: {} | Polciy Loss: {} | Steps: {}".format(i, rewards, policy_loss, steps,))
@@ -121,7 +119,7 @@ def train(config):
                     wandb.log({"gameplays": wandb.Video(mp4, caption='episode: '+str(i-10), fps=4, format="gif"), "Episode": i})
 
             if i % config.save_every == 0:
-                save(config, save_name="CQL-DQN", model=agent.network, wandb=wandb, ep=0)
+                save(config, save_name="MBPO-SAC", model=agent.actor_local, wandb=wandb, ep=0)
 
 if __name__ == "__main__":
     config = get_config()
