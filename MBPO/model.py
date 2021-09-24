@@ -27,7 +27,6 @@ class MBEnsemble():
         
         self.n_updates = config.n_updates
         self.n_rollouts = config.n_rollouts
-        self.kstep = config.kstep
         
     def train(self, dataloader):
         epoch_losses = []
@@ -46,11 +45,11 @@ class MBEnsemble():
             reward_diff = (r - prob_prediction[:, -1].detach()).mean()
         return np.mean(epoch_losses), reward_diff.item()
     
-    def do_rollouts(self, buffer, env_buffer, policy):
+    def do_rollouts(self, buffer, env_buffer, policy, kstep):
         
         states, _, _, _, _ = env_buffer.sample(self.n_rollouts)
         states = states.cpu().numpy()
-        for k in range(self.kstep):
+        for k in range(kstep):
             #model = random.sample(self.ensemble, k=1)[0]
             actions = policy.get_action(states)
             ensemble_mu = 0
@@ -71,7 +70,6 @@ class MBEnsemble():
             dones = torch.zeros(rewards.shape)
             for (s, a, r, ns, d) in zip(states, actions, rewards, next_states, dones):
                 buffer.add(s, a, r, ns, d)
-            
             states = next_states
             
     

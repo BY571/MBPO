@@ -24,19 +24,26 @@ def get_config():
     parser.add_argument("--log_video", type=int, default=0, help="Log agent behaviour to wanbd when set to 1, default: 0")
     parser.add_argument("--save_every", type=int, default=100, help="Saves the network every x epochs, default: 25")
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size, default: 256")
-    parser.add_argument("--npolicy_updates", type=int, default=20, help="")
+    parser.add_argument("--npolicy_updates", type=int, default=1, help="")
     
     ## MB params
-    parser.add_argument("--n_updates", type=int, default=5, help="")
+    parser.add_argument("--n_updates", type=int, default=1, help="")
     parser.add_argument("--mb_buffer_size", type=int, default=100_000, help="")
     parser.add_argument("--n_rollouts", type=int, default=400, help="")
-    parser.add_argument("--ensembles", type=int, default=7, help="")
+    parser.add_argument("--ensembles", type=int, default=2, help="")
     parser.add_argument("--hidden_size", type=int, default=200, help="")
-    parser.add_argument("--kstep", type=int, default=1, help="")
     parser.add_argument("--mb_lr", type=float, default=3e-4, help="")
+    # kstep schedule
+    parser.add_argument("--kstep_start", type=int, default=1, help="kstep starting value")
+    parser.add_argument("--kstep_end", type=int, default=1, help="kstep ending value")
+    parser.add_argument("--epis_start", type=int, default=1, help="starting episode when the kstep value should be adapted")
+    parser.add_argument("--epis_end", type=int, default=1, help="ending episode when the kstep value should have the 'kstep_end' value")
     
     args = parser.parse_args()
     return args 
+
+def get_kstep(e, kstep_start, kstep_end, epis_start, epis_end):
+    return int(min(max(kstep_start + ((e-epis_start)/(epis_end-epis_start)) * (kstep_end-kstep_start), kstep_start), kstep_end))
 
 def train(config):
     np.random.seed(config.seed)
@@ -73,7 +80,6 @@ def train(config):
                                    device=device)
 
         collect_random(env=env, dataset=mb_buffer, num_samples=5000)
-        
         if config.log_video:
             env = gym.wrappers.Monitor(env, './video', video_callable=lambda x: x%10==0, force=True)
         for i in range(1, config.episodes+1):
@@ -87,7 +93,13 @@ def train(config):
                 steps += 1
                 next_state, reward, done, _ = env.step(action)
                 mb_buffer.add(state, action, reward, next_state, done)
-                ensemble.do_rollouts(buffer=buffer, env_buffer=mb_buffer, policy=agent)
+
+                kstep = get_kstep(e=i, kstep_start=config.kstep_start,
+                                  kstep_end=config.kstep_end,
+                                  epis_start=config.epis_start,
+                                  epis_end=config.epis_end)
+                
+                ensemble.do_rollouts(buffer=buffer, env_buffer=mb_buffer, policy=agent, kstep=kstep)
                 for _ in range(config.npolicy_updates):
                     policy_loss, alpha_loss, bellmann_error1, bellmann_error2, current_alpha = agent.learn(steps, buffer.sample(), gamma=0.99)
                 state = next_state
@@ -109,6 +121,7 @@ def train(config):
                        "Bellmann error 2": bellmann_error2,
                        "Alpha": current_alpha,
                        "Steps": steps,
+                       "Kstep": kstep,
                        "Episode": i,
                        "Buffer size": buffer.__len__(),
                        "Env Buffer size": mb_buffer.__len__()})
