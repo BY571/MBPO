@@ -117,7 +117,7 @@ class SAC(nn.Module):
         # ---------------------------- update critic ---------------------------- #
         # Get predicted next-state actions and Q values from target models
         with torch.no_grad():
-            next_states, rewards = model.value_expansion(rewards, next_states, self.actor_local, gamma=self.gamma)
+            next_states, rewards = model.value_expansion(rewards, next_states.cpu().numpy(), self, gamma=self.gamma)
             next_action, _ = self.actor_local.evaluate(next_states)
             Q_target1_next = self.critic1_target(next_states, next_action)
             Q_target2_next = self.critic2_target(next_states, next_action)

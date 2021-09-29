@@ -65,7 +65,7 @@ class MBEnsemble():
         states = states.cpu().numpy()
         for k in range(kstep):
             actions = policy.get_action(states)
-            all_ensemble_predictions = self.run_ensemble_prediction(states, policy)
+            all_ensemble_predictions = self.run_ensemble_prediction(states, actions)
             if self.rollout_select == "random":
                 # choose what predictions we select from what ensemble member
                 idxs = random.choices(range(len(self.ensemble)), k=self.n_rollouts)
@@ -88,17 +88,17 @@ class MBEnsemble():
         return whole_batch_uncertainty.item()
 
     def value_expansion(self, rewards, next_state, policy, gamma=0.99):
-        rollout_reward = 0
+        rollout_reward = np.zeros((rewards.shape))
 
         for h in range(self.mve_horizon):
             output_state = next_state
-            rollout_reward += (gamma**h * rewards)
+            rollout_reward += (gamma**h * rewards.cpu().numpy())
             action = policy.get_action(next_state)
-            predictions = self.run_ensemble_prediction(next_state.numpy(), action.numpy()).mean(0)
+            predictions = self.run_ensemble_prediction(next_state, action.numpy()).mean(0)
             assert predictions.shape == (next_state.shape[0], next_state.shape[1]+1)
             next_state = predictions[:, :-1].cpu().numpy()
-            rewards = predictions[:, -1].cpu().numpy()
+            rewards = predictions[:, -1].unsqueeze(-1)
         
-        return output_state, rollout_reward
+        return torch.from_numpy(output_state).float().to(self.device), torch.from_numpy(rollout_reward).float().to(self.device)
             
     
