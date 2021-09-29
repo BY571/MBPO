@@ -26,6 +26,12 @@ def get_config():
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size, default: 256")
     parser.add_argument("--npolicy_updates", type=int, default=20, help="")
     
+    # SAC params
+    parser.add_argument("--gamma", type=float, default=0.99, help="")
+    parser.add_argument("--tau", type=float, default=5e-3, help="")
+    parser.add_argument("--sac_hidden_size", type=int, default=256, help="")
+    parser.add_argument("--sac_lr", type=float, default=5e-4, help="")
+    parser.add_argument("--clip_grad", type=float, default=10, help="")
     ## MB params
     parser.add_argument("--n_updates", type=int, default=5, help="")
     parser.add_argument("--mb_buffer_size", type=int, default=100_000, help="")
@@ -33,7 +39,9 @@ def get_config():
     parser.add_argument("--ensembles", type=int, default=7, help="")
     parser.add_argument("--hidden_size", type=int, default=200, help="")
     parser.add_argument("--mb_lr", type=float, default=3e-4, help="")
-    parser.add_argument("--mve_horizon", type=int, default=5, help="Model Based Value Expansion Horizon, default: 5")
+    parser.add_argument("--mve_horizon", type=int, default=1, help="Model Based Value Expansion Horizon, default: 1")
+    parser.add_argument("--rollout_select", type=str, default="random", choices=["random", "mean"], help="Define how the rollouts are composed, randomly from a random selected member of the ensemble or as the mean over all ensembles, default: random")
+    
     # kstep schedule
     parser.add_argument("--kstep_start", type=int, default=1, help="kstep starting value")
     parser.add_argument("--kstep_end", type=int, default=1, help="kstep ending value")
@@ -65,6 +73,7 @@ def train(config):
         
         agent = SAC(state_size=env.observation_space.shape[0],
                     action_size=env.action_space.shape[0],
+                    config=config,
                     device=device)
         
         ensemble = MBEnsemble(state_size=env.observation_space.shape[0],
@@ -104,7 +113,7 @@ def train(config):
                 epistemic_uncertainty = ensemble.do_rollouts(buffer=buffer, env_buffer=mb_buffer, policy=agent, kstep=kstep)
                 epistemic_uncertainty_.append(epistemic_uncertainty)
                 for _ in range(config.npolicy_updates):
-                    policy_loss, alpha_loss, bellmann_error1, bellmann_error2, current_alpha = agent.learn(steps, buffer.sample(), gamma=0.99)
+                    policy_loss, alpha_loss, bellmann_error1, bellmann_error2, current_alpha = agent.learn(buffer.sample(), ensemble)
                 state = next_state
                 rewards += reward
                 episode_steps += 1
