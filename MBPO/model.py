@@ -50,21 +50,19 @@ class MBEnsemble():
         states, _, _, _, _ = env_buffer.sample(self.n_rollouts)
         states = states.cpu().numpy()
         for k in range(kstep):
-            #model = random.sample(self.ensemble, k=1)[0]
             actions = policy.get_action(states)
-            ensemble_mu = 0
-            ensemble_log_var = 0
+            prediction_list = []
             with torch.no_grad():
                 for model in self.ensemble:
-                    _, (mu, log_var), _ = model(torch.from_numpy(states).float().to(self.device),
+                    predictions, _, _ = model(torch.from_numpy(states).float().to(self.device),
                                             torch.from_numpy(actions).float().to(self.device))
-                    ensemble_mu += mu
-                    ensemble_log_var += log_var.exp()
 
-            dist = Normal(ensemble_mu/self.n_ensembles,
-                          ensemble_log_var/self.n_ensembles)
-            predictions = dist.sample()
-                
+                    prediction_list.append(predictions.unsqueeze(0))
+            all_ensemble_predictions = torch.cat(prediction_list, axis=0) # [ensembles, batch, prediction_shape]
+            # choose what predictions we select from what ensemble member
+            idxs = random.choices(range(len(self.ensemble)), k=self.n_rollouts)
+            # pick prediction based on ensemble idxs
+            predictions = all_ensemble_predictions[idxs, 1, :]
             next_states = predictions[:, :-1].cpu().numpy()
             rewards = predictions[:, -1].cpu().numpy()
             dones = torch.zeros(rewards.shape)
