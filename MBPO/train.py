@@ -24,20 +24,21 @@ def get_config():
     parser.add_argument("--log_video", type=int, default=0, help="Log agent behaviour to wanbd when set to 1, default: 0")
     parser.add_argument("--save_every", type=int, default=100, help="Saves the network every x epochs, default: 25")
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size, default: 256")
-    parser.add_argument("--npolicy_updates", type=int, default=1, help="")
+    parser.add_argument("--npolicy_updates", type=int, default=20, help="")
     
     ## MB params
-    parser.add_argument("--n_updates", type=int, default=1, help="")
+    parser.add_argument("--n_updates", type=int, default=5, help="")
     parser.add_argument("--mb_buffer_size", type=int, default=100_000, help="")
     parser.add_argument("--n_rollouts", type=int, default=400, help="")
-    parser.add_argument("--ensembles", type=int, default=2, help="")
+    parser.add_argument("--ensembles", type=int, default=7, help="")
     parser.add_argument("--hidden_size", type=int, default=200, help="")
     parser.add_argument("--mb_lr", type=float, default=3e-4, help="")
+    parser.add_argument("--mve_horizon", type=int, default=5, help="Model Based Value Expansion Horizon, default: 5")
     # kstep schedule
     parser.add_argument("--kstep_start", type=int, default=1, help="kstep starting value")
     parser.add_argument("--kstep_end", type=int, default=1, help="kstep ending value")
     parser.add_argument("--epis_start", type=int, default=1, help="starting episode when the kstep value should be adapted")
-    parser.add_argument("--epis_end", type=int, default=1, help="ending episode when the kstep value should have the 'kstep_end' value")
+    parser.add_argument("--epis_end", type=int, default=2, help="ending episode when the kstep value should have the 'kstep_end' value")
     
     args = parser.parse_args()
     return args 
@@ -88,6 +89,7 @@ def train(config):
             state = env.reset()
             episode_steps = 0
             rewards = 0
+            epistemic_uncertainty_ = []
             while True:
                 action = agent.get_action(state)
                 steps += 1
@@ -99,7 +101,8 @@ def train(config):
                                   epis_start=config.epis_start,
                                   epis_end=config.epis_end)
                 
-                ensemble.do_rollouts(buffer=buffer, env_buffer=mb_buffer, policy=agent, kstep=kstep)
+                epistemic_uncertainty = ensemble.do_rollouts(buffer=buffer, env_buffer=mb_buffer, policy=agent, kstep=kstep)
+                epistemic_uncertainty_.append(epistemic_uncertainty)
                 for _ in range(config.npolicy_updates):
                     policy_loss, alpha_loss, bellmann_error1, bellmann_error2, current_alpha = agent.learn(steps, buffer.sample(), gamma=0.99)
                 state = next_state
@@ -120,6 +123,7 @@ def train(config):
                        "Bellmann error 1": bellmann_error1,
                        "Bellmann error 2": bellmann_error2,
                        "Alpha": current_alpha,
+                       "Epistemic uncertainty": np.mean(epistemic_uncertainty_),
                        "Steps": steps,
                        "Kstep": kstep,
                        "Episode": i,

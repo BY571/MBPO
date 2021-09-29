@@ -69,5 +69,14 @@ class MBEnsemble():
             for (s, a, r, ns, d) in zip(states, actions, rewards, next_states, dones):
                 buffer.add(s, a, r, ns, d)
             states = next_states
+        # calculate epistemic uncertainty ~ variance between the ensembles 
+        # over the course of training ensembles should all predict the same variance -> 0 
+        # model is very certain what will happen
+        variance_over_each_state = all_ensemble_predictions.var(0)
+        whole_batch_uncertainty = variance_over_each_state.var()
+        return whole_batch_uncertainty.item()
+
+    def value_expansion(r0, state, action, policy):
+        pass
             
     
