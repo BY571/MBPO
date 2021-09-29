@@ -56,6 +56,7 @@ class MBEnsemble():
                 prediction_list.append(predictions.unsqueeze(0))
         all_ensemble_predictions = torch.cat(prediction_list, axis=0) 
         # [ensembles, batch, prediction_shape]
+        assert all_ensemble_predictions.shape == (self.n_ensembles, states.shape[0], states.shape[1] + 1)
         return all_ensemble_predictions
 
 
