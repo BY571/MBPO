@@ -19,6 +19,7 @@ def get_config():
     parser.add_argument("--run_name", type=str, default="MBPO-SAC", help="Run name, default: MBPO-SAC")
     parser.add_argument("--env", type=str, default="Pendulum-v0", help="Gym environment name, default: Pendulum-v0")
     parser.add_argument("--episodes", type=int, default=100, help="Number of episodes, default: 100")
+    parser.add_argument("--episode_length", type=int, default=1000, help="Length of one episode, default: 1000")
     parser.add_argument("--buffer_size", type=int, default=250_000, help="Maximal training dataset size, default: 250_000")
     parser.add_argument("--seed", type=int, default=1, help="Seed, default: 1")
     parser.add_argument("--log_video", type=int, default=0, help="Log agent behaviour to wanbd when set to 1, default: 0")
@@ -99,7 +100,7 @@ def train(config):
             episode_steps = 0
             rewards = 0
             epistemic_uncertainty_ = []
-            while True:
+            for _ in range(config.episode_length):
                 action = agent.get_action(state)
                 steps += 1
                 next_state, reward, done, _ = env.step(action)
@@ -118,7 +119,7 @@ def train(config):
                 rewards += reward
                 episode_steps += 1
                 if done:
-                    break
+                    state = env.reset()
 
             average10.append(rewards)
             total_steps += episode_steps
