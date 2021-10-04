@@ -96,6 +96,12 @@ def train(config):
         collect_random(env=evaluation_env, dataset=mb_buffer, num_samples=5000)
         if config.log_video:
             evaluation_env = gym.wrappers.Monitor(evaluation_env, './video', video_callable=lambda x: x%10==0, force=True)
+            
+        # evaluate untrained policy
+        rewards = evaluate(evaluation_env, agent)
+        wandb.log({"Reward": rewards, "Episode": 0})
+
+        # do training
         for i in range(1, config.episodes+1):
             loss, reward_diff  = ensemble.train(mb_buffer.get_dataloader(batch_size=32))
             wandb.log({"Episode": i, "MB Loss": loss, "Reward-diff": reward_diff}, step=steps)
