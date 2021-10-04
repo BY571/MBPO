@@ -99,6 +99,7 @@ def train(config):
             state = env.reset()
             episode_steps = 0
             rewards = 0
+            total_rewards = []
             epistemic_uncertainty_ = []
             for _ in range(config.episode_length):
                 action = agent.get_action(state)
@@ -120,12 +121,14 @@ def train(config):
                 episode_steps += 1
                 if done:
                     state = env.reset()
+                    total_rewards.append(rewards)
+                    rewards = 0
 
-            average10.append(rewards)
+            average10.append(np.mean(total_rewards))
             total_steps += episode_steps
-            print("Episode: {} | Reward: {} | Polciy Loss: {} | Steps: {}".format(i, rewards, policy_loss, steps,))
+            print("Episode: {} | Reward: {} | Polciy Loss: {} | Steps: {}".format(i, np.mean(total_rewards), policy_loss, steps,))
             
-            wandb.log({"Reward": rewards,
+            wandb.log({"Reward": np.mean(total_rewards),
                        "Average10": np.mean(average10),
                        "Steps": total_steps,
                        "Policy Loss": policy_loss,

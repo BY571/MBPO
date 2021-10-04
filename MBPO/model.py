@@ -95,7 +95,7 @@ class MBEnsemble():
             output_state = next_state
             rollout_reward += (gamma**h * rewards.cpu().numpy())
             action = policy.get_action(next_state)
-            predictions = self.run_ensemble_prediction(next_state, action.numpy()).mean(0)
+            predictions = self.run_ensemble_prediction(next_state, action).mean(0)
             assert predictions.shape == (next_state.shape[0], next_state.shape[1]+1)
             next_state = predictions[:, :-1].cpu().numpy()
             rewards = predictions[:, -1].unsqueeze(-1)
