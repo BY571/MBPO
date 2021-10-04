@@ -1,5 +1,3 @@
-
-
 import gym
 import pybullet_envs
 import numpy as np
@@ -13,6 +11,8 @@ from utils import save, collect_random
 import random
 from agent import SAC
 from model import MBEnsemble
+import multipro
+from utils import evaluate
 
 def get_config():
     parser = argparse.ArgumentParser(description='RL')
@@ -26,6 +26,7 @@ def get_config():
     parser.add_argument("--save_every", type=int, default=100, help="Saves the network every x epochs, default: 25")
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size, default: 256")
     parser.add_argument("--npolicy_updates", type=int, default=20, help="")
+    parser.add_argument("--parallel_envs", type=int, default=8, help="Number of parallel environments, default: 8")
     
     # SAC params
     parser.add_argument("--gamma", type=float, default=0.99, help="")
@@ -59,11 +60,13 @@ def train(config):
     np.random.seed(config.seed)
     random.seed(config.seed)
     torch.manual_seed(config.seed)
-    env = gym.make(config.env)
+    envs = multipro.SubprocVecEnv([lambda: gym.make(config.env) for i in range(config.parallel_envs)])
+    evaluation_env = gym.make(config.env)
+    envs.seed(config.seed)
+    evaluation_env.seed(config.seed)
     
-    env.seed(config.seed)
-    env.action_space.seed(config.seed)
-
+    state_size = evaluation_env.observation_space.shape[0]
+    action_size = evaluation_env.action_space.shape[0]
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     
     steps = 0
@@ -72,13 +75,13 @@ def train(config):
     
     with wandb.init(project="MBPO", name=config.run_name, config=config):
         
-        agent = SAC(state_size=env.observation_space.shape[0],
-                    action_size=env.action_space.shape[0],
+        agent = SAC(state_size=state_size,
+                    action_size=action_size,
                     config=config,
                     device=device)
         
-        ensemble = MBEnsemble(state_size=env.observation_space.shape[0],
-                              action_size=env.action_space.shape[0],
+        ensemble = MBEnsemble(state_size=state_size,
+                              action_size=action_size,
                               config=config,
                               device=device)    
         
@@ -90,21 +93,19 @@ def train(config):
                                    batch_size=config.n_rollouts,
                                    device=device)
 
-        collect_random(env=env, dataset=mb_buffer, num_samples=5000)
+        collect_random(env=evaluation_env, dataset=mb_buffer, num_samples=5000)
         if config.log_video:
-            env = gym.wrappers.Monitor(env, './video', video_callable=lambda x: x%10==0, force=True)
+            evaluation_env = gym.wrappers.Monitor(evaluation_env, './video', video_callable=lambda x: x%10==0, force=True)
         for i in range(1, config.episodes+1):
             loss, reward_diff  = ensemble.train(mb_buffer.get_dataloader(batch_size=32))
             wandb.log({"Episode": i, "MB Loss": loss, "Reward-diff": reward_diff}, step=steps)
-            state = env.reset()
+            state = envs.reset()
             episode_steps = 0
-            rewards = 0
-            total_rewards = []
             epistemic_uncertainty_ = []
-            for _ in range(config.episode_length):
+            while episode_steps < config.episode_length:
                 action = agent.get_action(state)
-                steps += 1
-                next_state, reward, done, _ = env.step(action)
+                steps += config.parallel_envs
+                next_state, reward, done, _ = envs.step(action)
                 mb_buffer.add(state, action, reward, next_state, done)
 
                 kstep = get_kstep(e=i, kstep_start=config.kstep_start,
@@ -117,18 +118,18 @@ def train(config):
                 for _ in range(config.npolicy_updates):
                     policy_loss, alpha_loss, bellmann_error1, bellmann_error2, current_alpha = agent.learn(buffer.sample(), ensemble)
                 state = next_state
-                rewards += reward
-                episode_steps += 1
-                if done:
-                    state = env.reset()
-                    total_rewards.append(rewards)
-                    rewards = 0
+                episode_steps += config.parallel_envs
+                if done.any():
+                    state = envs.reset()
 
-            average10.append(np.mean(total_rewards))
-            total_steps += episode_steps
-            print("Episode: {} | Reward: {} | Polciy Loss: {} | Steps: {}".format(i, np.mean(total_rewards), policy_loss, steps,))
+            # do evaluation runs 
+            rewards = evaluate(evaluation_env, agent)
             
-            wandb.log({"Reward": np.mean(total_rewards),
+            average10.append(rewards)
+            total_steps += episode_steps
+            print("Episode: {} | Reward: {} | Polciy Loss: {} | Steps: {}".format(i, rewards, policy_loss, steps,))
+            
+            wandb.log({"Reward": rewards,
                        "Average10": np.mean(average10),
                        "Steps": total_steps,
                        "Policy Loss": policy_loss,
@@ -143,7 +144,8 @@ def train(config):
                        "Buffer size": buffer.__len__(),
                        "Env Buffer size": mb_buffer.__len__()})
 
-            if (i %10 == 0) and config.log_video:
+            # log evaluation runs to wandb
+            if config.log_video:
                 mp4list = glob.glob('video/*.mp4')
                 if len(mp4list) > 1:
                     mp4 = mp4list[-2]
