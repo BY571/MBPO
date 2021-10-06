@@ -25,7 +25,7 @@ class MBEnsemble():
         self.n_rollouts = config.n_rollouts
         self.mve_horizon = config.mve_horizon
         self.rollout_select = config.rollout_select
-        self.stop_early = 10
+        self.stop_early = 5
         
     def train(self, train_dataloader, test_dataloader):
         epoch_losses = []
@@ -95,9 +95,10 @@ class MBEnsemble():
             all_ensemble_predictions = self.run_ensemble_prediction(states, actions)
             if self.rollout_select == "random":
                 # choose what predictions we select from what ensemble member
-                idxs = random.choices(range(len(self.ensemble)), k=self.n_rollouts)
+                ensemble_idx = random.choices(range(len(self.ensemble)), k=self.n_rollouts)
+                step_idx = np.arange(states.shape[0])
                 # pick prediction based on ensemble idxs
-                predictions = all_ensemble_predictions[idxs, 1, :]
+                predictions = all_ensemble_predictions[ensemble_idx, step_idx, :]
             else:
                 predictions = all_ensemble_predictions.mean(0)
             assert predictions.shape == (self.n_rollouts, states.shape[1] + 1)

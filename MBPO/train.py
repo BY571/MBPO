@@ -35,12 +35,11 @@ def get_config():
     parser.add_argument("--sac_lr", type=float, default=5e-4, help="")
     parser.add_argument("--clip_grad", type=float, default=10, help="")
     ## MB params
-    parser.add_argument("--n_updates", type=int, default=1, help="")
     parser.add_argument("--mb_buffer_size", type=int, default=100_000, help="")
     parser.add_argument("--n_rollouts", type=int, default=400, help="")
     parser.add_argument("--ensembles", type=int, default=7, help="")
     parser.add_argument("--hidden_size", type=int, default=200, help="")
-    parser.add_argument("--mb_lr", type=float, default=3e-4, help="")
+    parser.add_argument("--mb_lr", type=float, default=1e-4, help="")
     parser.add_argument("--mve_horizon", type=int, default=1, help="Model Based Value Expansion Horizon, default: 1")
     parser.add_argument("--rollout_select", type=str, default="random", choices=["random", "mean"], help="Define how the rollouts are composed, randomly from a random selected member of the ensemble or as the mean over all ensembles, default: random")
     
