@@ -20,7 +20,7 @@ def get_config():
     parser.add_argument("--env", type=str, default="Pendulum-v0", help="Gym environment name, default: Pendulum-v0")
     parser.add_argument("--episodes", type=int, default=100, help="Number of episodes, default: 100")
     parser.add_argument("--episode_length", type=int, default=1000, help="Length of one episode, default: 1000")
-    parser.add_argument("--buffer_size", type=int, default=250_000, help="Maximal training dataset size, default: 250_000")
+    parser.add_argument("--buffer_size", type=int, default=400_000, help="Maximal training dataset size, default: 400_000")
     parser.add_argument("--seed", type=int, default=1, help="Seed, default: 1")
     parser.add_argument("--log_video", type=int, default=0, help="Log agent behaviour to wanbd when set to 1, default: 0")
     parser.add_argument("--save_every", type=int, default=100, help="Saves the network every x epochs, default: 25")
@@ -35,7 +35,7 @@ def get_config():
     parser.add_argument("--sac_lr", type=float, default=5e-4, help="")
     parser.add_argument("--clip_grad", type=float, default=10, help="")
     ## MB params
-    parser.add_argument("--n_updates", type=int, default=5, help="")
+    parser.add_argument("--n_updates", type=int, default=1, help="")
     parser.add_argument("--mb_buffer_size", type=int, default=100_000, help="")
     parser.add_argument("--n_rollouts", type=int, default=400, help="")
     parser.add_argument("--ensembles", type=int, default=7, help="")
@@ -96,15 +96,12 @@ def train(config):
         collect_random(env=evaluation_env, dataset=mb_buffer, num_samples=5000)
         if config.log_video:
             evaluation_env = gym.wrappers.Monitor(evaluation_env, './video', video_callable=lambda x: x%10==0, force=True)
-            
-        # evaluate untrained policy
-        rewards = evaluate(evaluation_env, agent)
-        wandb.log({"Reward": rewards, "Episode": 0})
 
         # do training
         for i in range(1, config.episodes+1):
-            loss, reward_diff  = ensemble.train(mb_buffer.get_dataloader(batch_size=32))
-            wandb.log({"Episode": i, "MB Loss": loss, "Reward-diff": reward_diff}, step=steps)
+            train_dataloader, test_dataloader = mb_buffer.get_dataloader(batch_size=32)
+            loss, reward_diff, mean_epochs  = ensemble.train(train_dataloader, test_dataloader)
+            wandb.log({"Episode": i, "MB Loss": loss, "Reward-diff": reward_diff, "MB-epochs": mean_epochs}, step=steps)
             state = envs.reset()
             episode_steps = 0
             epistemic_uncertainty_ = []

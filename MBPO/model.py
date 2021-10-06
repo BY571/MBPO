@@ -1,9 +1,6 @@
 from networks import DynamicsModel
 import torch
 import torch.optim as optim
-import torch.nn.functional as F
-import torch.nn as nn
-from torch.distributions import Normal
 import random
 import numpy as np
 
@@ -25,16 +22,22 @@ class MBEnsemble():
             
         self.optimizer = optim.Adam(params=parameter, lr=config.mb_lr)
         
-        self.n_updates = config.n_updates
         self.n_rollouts = config.n_rollouts
         self.mve_horizon = config.mve_horizon
         self.rollout_select = config.rollout_select
+        self.stop_early = 10
         
-    def train(self, dataloader):
+    def train(self, train_dataloader, test_dataloader):
         epoch_losses = []
-        for i in range(self.n_updates):
-            for model in self.ensemble:
-                for (s, a, r, ns, d) in dataloader:
+        epochs_trained = []
+        for model in self.ensemble:
+            epoch = 0
+            lowest_validation = np.inf
+            stop_early_counter = 0
+            while True:
+                # train
+                train_losses = []
+                for (s, a, r, ns, d) in train_dataloader:
                     self.optimizer.zero_grad()
                     prob_prediction, (mu, log_var), _ = model(s,a)
                     inv_var = (-log_var).exp()
@@ -44,8 +47,31 @@ class MBEnsemble():
                     loss.backward()
                     self.optimizer.step()
                     epoch_losses.append(loss.item())
+                    train_losses.append(loss.item())
+                # evaluation
+                model.eval()
+                validation_losses = []
+                for (s, a, r, ns, d) in test_dataloader:
+                    with torch.no_grad():
+                        prob_prediction, (mu, log_var), _ = model(s,a)
+                        inv_var = (-log_var).exp()
+                        targets = torch.cat((ns,r), dim=-1)
+                        validation_loss = ((mu - targets.to(self.device))**2 * inv_var).mean(-1).mean(-1) + log_var.mean(-1).mean(-1)
+                    validation_losses.append(validation_loss.item())
+                model.train()
+                epoch += 1
+                if np.mean(validation_losses) < lowest_validation:
+                    lowest_validation = np.mean(validation_losses)
+                    stop_early_counter = 0 
+                else:
+                    stop_early_counter += 1
+                if stop_early_counter >= self.stop_early:
+                    # print("-- Stop early at epoch: {} --".format(epoch))
+                    epochs_trained.append(epoch)
+                    break
+                
             reward_diff = (r - prob_prediction[:, -1].detach()).mean()
-        return np.mean(epoch_losses), reward_diff.item()
+        return np.mean(epoch_losses), reward_diff.item(), np.mean(epochs_trained)
     
     def run_ensemble_prediction(self, states, actions):
         prediction_list = []

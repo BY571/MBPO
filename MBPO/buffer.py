@@ -81,15 +81,21 @@ class MBReplayBuffer:
 
         return (states, actions, rewards, next_states, dones)
 
-    def get_dataloader(self, batch_size=32):
+    def get_dataloader(self, batch_size=32, test_set_percentage=0.2):
         states = torch.from_numpy(np.stack([e.state for e in self.memory if e is not None])).float().to(self.device)
         actions = torch.from_numpy(np.vstack([e.action for e in self.memory if e is not None])).float().to(self.device)
         rewards = torch.from_numpy(np.vstack([e.reward for e in self.memory if e is not None])).float().to(self.device)
         next_states = torch.from_numpy(np.stack([e.next_state for e in self.memory if e is not None])).float().to(self.device)
         dones = torch.from_numpy(np.vstack([e.done for e in self.memory if e is not None]).astype(np.uint8)).float().to(self.device)
         dataset = TensorDataset(states, actions, rewards, next_states, dones)
-        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-        return dataloader
+        test_data_size = int(len(dataset) * test_set_percentage)
+        train_data_size = len(dataset) - test_data_size
+        assert train_data_size + test_data_size == len(dataset)
+        train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_data_size, test_data_size])
+        train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+        
+        return train_dataloader, test_dataloader
         
     def __len__(self):
         """Return the current size of internal memory."""
