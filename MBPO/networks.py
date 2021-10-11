@@ -118,10 +118,18 @@ class DynamicsModel(nn.Module):
         self.log_std_min = log_std_min
         self.log_std_max = log_std_max
         
+        self.batch_norm_input = nn.BatchNorm1d(state_size + action_size)
+        self.batch_norm_fc2 = nn.BatchNorm1d(hidden_size)
+        
     def forward(self, state, action):
         x = torch.cat((state, action), dim=-1)
-        x = self.activation(self.fc1(x))
-        x = self.activation(self.fc2(x))
+
+        x = self.fc1(x)
+        x = self.batch_norm_input(x)
+        x = self.activation(x)
+        x = self.fc2(x)
+        x = self.batch_norm_fc2(x)
+        x = self.activation(x)
         x = self.activation(self.fc3(x))
         
         mu = self.mu(x)

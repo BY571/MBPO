@@ -90,7 +90,7 @@ class MBReplayBuffer:
         dataset = TensorDataset(states, actions, rewards, next_states, dones)
         test_data_size = int(len(dataset) * test_set_percentage)
         train_data_size = len(dataset) - test_data_size
-        assert train_data_size + test_data_size == len(dataset)
+
         train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_data_size, test_data_size])
         train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
