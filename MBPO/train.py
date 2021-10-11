@@ -20,13 +20,13 @@ def get_config():
     parser.add_argument("--env", type=str, default="Pendulum-v0", help="Gym environment name, default: Pendulum-v0")
     parser.add_argument("--episodes", type=int, default=100, help="Number of episodes, default: 100")
     parser.add_argument("--episode_length", type=int, default=1000, help="Length of one episode, default: 1000")
-    parser.add_argument("--buffer_size", type=int, default=400_000, help="Maximal training dataset size, default: 400_000")
+    parser.add_argument("--buffer_size", type=int, default=1_000_000, help="Maximal training dataset size, default: 1_000_000")
     parser.add_argument("--seed", type=int, default=1, help="Seed, default: 1")
     parser.add_argument("--log_video", type=int, default=0, help="Log agent behaviour to wanbd when set to 1, default: 0")
     parser.add_argument("--save_every", type=int, default=100, help="Saves the network every x epochs, default: 25")
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size, default: 256")
     parser.add_argument("--npolicy_updates", type=int, default=20, help="")
-    parser.add_argument("--parallel_envs", type=int, default=8, help="Number of parallel environments, default: 8")
+    parser.add_argument("--parallel_envs", type=int, default=1, help="Number of parallel environments, default: 1")
     
     # SAC params
     parser.add_argument("--gamma", type=float, default=0.99, help="")
@@ -39,8 +39,7 @@ def get_config():
     parser.add_argument("--n_rollouts", type=int, default=400, help="")
     parser.add_argument("--ensembles", type=int, default=7, help="")
     parser.add_argument("--hidden_size", type=int, default=200, help="")
-    parser.add_argument("--mb_lr", type=float, default=1e-4, help="")
-    parser.add_argument("--mve_horizon", type=int, default=1, help="Model Based Value Expansion Horizon, default: 1")
+    parser.add_argument("--mb_lr", type=float, default=1e-2, help="")
     parser.add_argument("--rollout_select", type=str, default="random", choices=["random", "mean"], help="Define how the rollouts are composed, randomly from a random selected member of the ensemble or as the mean over all ensembles, default: random")
     
     # kstep schedule
@@ -88,6 +87,10 @@ def train(config):
 
         buffer = ReplayBuffer(buffer_size=config.buffer_size, batch_size=config.batch_size, device=device)
         
+        # rollouts_per_epoch = args.rollout_batch_size * args.epoch_length / args.model_train_freq
+        # model_steps_per_epoch = int(1 * rollouts_per_epoch)
+        # new_pool_size = args.model_retain_epochs * model_steps_per_epoch
+        
         mb_buffer = MBReplayBuffer(buffer_size=config.mb_buffer_size,
                                    batch_size=config.n_rollouts,
                                    device=device)
@@ -98,9 +101,9 @@ def train(config):
 
         # do training
         for i in range(1, config.episodes+1):
-            train_dataloader, test_dataloader = mb_buffer.get_dataloader(batch_size=32)
-            loss, reward_diff, mean_epochs  = ensemble.train(train_dataloader, test_dataloader)
-            wandb.log({"Episode": i, "MB Loss": loss, "Reward-diff": reward_diff, "MB-epochs": mean_epochs}, step=steps)
+            train_dataloader, test_dataloader = mb_buffer.get_dataloader(batch_size=256)
+            loss, mean_epochs  = ensemble.train(train_dataloader, test_dataloader)
+            wandb.log({"Episode": i, "MB Loss": loss, "MB-epochs": mean_epochs}, step=steps)
             state = envs.reset()
             episode_steps = 0
             epistemic_uncertainty_ = []

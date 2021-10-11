@@ -10,20 +10,18 @@ class MBEnsemble():
                 
         self.device = device
         self.ensemble = []
-        parameter = []
+
         self.n_ensembles = config.ensembles
         for i in range(self.n_ensembles):
             dynamics = DynamicsModel(state_size=state_size,
                                                action_size=action_size,
                                                hidden_size=config.hidden_size,
-                                               seed=i).to(device)
-            self.ensemble.append(dynamics)
-            parameter += list(dynamics.parameters())
-            
-        self.optimizer = optim.Adam(params=parameter, lr=config.mb_lr)
-        
+                                               lr=config.mb_lr,
+                                               seed=i,
+                                               device=device).to(device)
+            self.ensemble.append(dynamics)          
+
         self.n_rollouts = config.n_rollouts
-        self.mve_horizon = config.mve_horizon
         self.rollout_select = config.rollout_select
         self.stop_early = 4
         
@@ -38,14 +36,10 @@ class MBEnsemble():
                 # train
                 train_losses = []
                 for (s, a, r, ns, d) in train_dataloader:
-                    self.optimizer.zero_grad()
-                    prob_prediction, (mu, log_var), _ = model(s,a)
-                    inv_var = (-log_var).exp()
-                    targets = torch.cat((ns,r), dim=-1)
-                    loss = ((mu - targets.to(self.device))**2 * inv_var).mean(-1).mean(-1) + log_var.mean(-1).mean(-1)
+                    targets = torch.cat((ns,r), dim=-1).to(self.device)
+                    loss = model.calc_loss(s, a, targets)
+                    model.optimize(loss)
                     
-                    loss.backward()
-                    self.optimizer.step()
                     epoch_losses.append(loss.item())
                     train_losses.append(loss.item())
                 # evaluation
@@ -53,13 +47,13 @@ class MBEnsemble():
                 validation_losses = []
                 for (s, a, r, ns, d) in test_dataloader:
                     with torch.no_grad():
-                        prob_prediction, (mu, log_var), _ = model(s,a)
-                        inv_var = (-log_var).exp()
-                        targets = torch.cat((ns,r), dim=-1)
-                        validation_loss = ((mu - targets.to(self.device))**2 * inv_var).mean(-1).mean(-1) + log_var.mean(-1).mean(-1)
+                        targets = torch.cat((ns,r), dim=-1).to(self.device)
+                        validation_loss = model.calc_loss(s, a, targets)
                     validation_losses.append(validation_loss.item())
+                    
                 model.train()
                 epoch += 1
+
                 if np.mean(validation_losses) < lowest_validation:
                     lowest_validation = np.mean(validation_losses)
                     stop_early_counter = 0 
@@ -70,14 +64,14 @@ class MBEnsemble():
                     epochs_trained.append(epoch)
                     break
                 
-            reward_diff = (r - prob_prediction[:, -1].detach()).mean()
-        return np.mean(epoch_losses), reward_diff.item(), np.mean(epochs_trained)
+
+        return np.mean(epoch_losses), np.mean(epochs_trained)
     
     def run_ensemble_prediction(self, states, actions):
         prediction_list = []
         with torch.no_grad():
             for model in self.ensemble:
-                predictions, _, _ = model(torch.from_numpy(states).float().to(self.device),
+                predictions, _ = model(torch.from_numpy(states).float().to(self.device),
                                         torch.from_numpy(actions).float().to(self.device))
                 prediction_list.append(predictions.unsqueeze(0))
         all_ensemble_predictions = torch.cat(prediction_list, axis=0) 

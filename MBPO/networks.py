@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.distributions import Normal
 import numpy as np
 import torch.nn.functional as F
+from torch.autograd import Variable
 
 
 def hidden_init(layer):
@@ -105,7 +106,7 @@ class Critic(nn.Module):
     
 class DynamicsModel(nn.Module):
 
-    def __init__(self, state_size, action_size, hidden_size=32, seed=1, log_std_min=-20, log_std_max=2):
+    def __init__(self, state_size, action_size, hidden_size=200, seed=1, lr=1e-2, device="cpu"):
         super(DynamicsModel, self).__init__()
         torch.manual_seed(seed)
         self.fc1 = nn.Linear(state_size + action_size, hidden_size)
@@ -115,27 +116,39 @@ class DynamicsModel(nn.Module):
         self.log_var = nn.Linear(hidden_size, state_size + 1)
         
         self.activation = nn.SiLU()
-        self.log_std_min = log_std_min
-        self.log_std_max = log_std_max
+        self.min_logvar = Variable(-torch.ones((1, state_size + 1)).type(torch.FloatTensor) * 10, requires_grad=True).to(device)
+        self.max_logvar = Variable(torch.ones((1, state_size + 1)).type(torch.FloatTensor) / 2, requires_grad=True).to(device)
         
-        self.batch_norm_input = nn.BatchNorm1d(state_size + action_size)
-        self.batch_norm_fc2 = nn.BatchNorm1d(hidden_size)
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         
     def forward(self, state, action):
         x = torch.cat((state, action), dim=-1)
 
         x = self.fc1(x)
-        x = self.batch_norm_input(x)
         x = self.activation(x)
         x = self.fc2(x)
-        x = self.batch_norm_fc2(x)
         x = self.activation(x)
-        x = self.activation(self.fc3(x))
+        x = self.fc3(x)
+        x = self.activation(x)
         
         mu = self.mu(x)
 
-        log_var = torch.clamp(self.log_var(x), self.log_std_min, self.log_std_max)
+        log_var = self.max_logvar - F.softplus(self.max_logvar - self.log_var(x))
+        log_var = self.min_logvar + F.softplus(log_var - self.min_logvar)
+        
         dist = Normal(mu, log_var.exp())
         output = dist.sample()
         
-        return output, (mu, log_var), dist
+        return output, (mu, log_var)
+    
+    def calc_loss(self, state, action, targets):
+        _, (mu, log_var) = self(state, action)
+        inv_var = (-log_var).exp()
+        loss = ((mu - targets)**2 * inv_var).mean(-1).mean(-1) + log_var.mean(-1).mean(-1)
+        return loss
+
+    def optimize(self, loss):
+        self.optimizer.zero_grad()
+        loss += 0.01 * torch.sum(self.max_logvar) - 0.01 * torch.sum(self.min_logvar)
+        loss.backward()
+        self.optimizer.step()

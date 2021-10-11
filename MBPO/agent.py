@@ -35,7 +35,6 @@ class SAC(nn.Module):
         hidden_size = config.sac_hidden_size
         learning_rate = config.sac_lr
         self.clip_grad_param = config.clip_grad
-        self.mve_horizon = config.mve_horizon
 
         self.target_entropy = -action_size  # -dim(A)
 
@@ -123,7 +122,7 @@ class SAC(nn.Module):
             Q_target_next = torch.min(Q_target1_next, Q_target2_next)
 
             # Compute Q targets for current states (y_i)
-            Q_targets = rewards.cpu() + (self.gamma**self.mve_horizon * (1 - dones.cpu()) * Q_target_next.cpu()) 
+            Q_targets = rewards.cpu() + (self.gamma * (1 - dones.cpu()) * Q_target_next.cpu()) 
 
 
         # Compute critic loss
