@@ -24,6 +24,7 @@ class MBEnsemble():
         self.n_rollouts = config.n_rollouts
         self.rollout_select = config.rollout_select
         self.stop_early = 4
+        self.elite_idxs = []
         
     def train(self, train_dataloader, test_dataloader):
         epoch_losses = []

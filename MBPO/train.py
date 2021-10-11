@@ -40,6 +40,7 @@ def get_config():
     parser.add_argument("--ensembles", type=int, default=7, help="")
     parser.add_argument("--hidden_size", type=int, default=200, help="")
     parser.add_argument("--mb_lr", type=float, default=1e-2, help="")
+    parser.add_argument("--update_frequency", type=int, default=250, help="")
     parser.add_argument("--rollout_select", type=str, default="random", choices=["random", "mean"], help="Define how the rollouts are composed, randomly from a random selected member of the ensemble or as the mean over all ensembles, default: random")
     
     # kstep schedule
@@ -101,13 +102,16 @@ def train(config):
 
         # do training
         for i in range(1, config.episodes+1):
-            train_dataloader, test_dataloader = mb_buffer.get_dataloader(batch_size=256)
-            loss, mean_epochs  = ensemble.train(train_dataloader, test_dataloader)
-            wandb.log({"Episode": i, "MB Loss": loss, "MB-epochs": mean_epochs}, step=steps)
             state = envs.reset()
             episode_steps = 0
             epistemic_uncertainty_ = []
             while episode_steps < config.episode_length:
+
+                if total_steps % config.update_frequency == 0:
+                    train_dataloader, test_dataloader = mb_buffer.get_dataloader(batch_size=256)
+                    loss, mean_epochs  = ensemble.train(train_dataloader, test_dataloader)
+                    wandb.log({"Episode": i, "MB Loss": loss, "MB-epochs": mean_epochs}, step=steps)                
+
                 action = agent.get_action(state)
                 steps += config.parallel_envs
                 next_state, reward, done, _ = envs.step(action)
