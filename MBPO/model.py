@@ -5,6 +5,33 @@ import random
 import numpy as np
 
 
+def termination_fn(env_name, obs, act, next_obs):
+    if env_name == "Hopper-v2":
+        assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
+
+        height = next_obs[:, 0]
+        angle = next_obs[:, 1]
+        not_done =  np.isfinite(next_obs).all(axis=-1) \
+                    * np.abs(next_obs[:,1:] < 100).all(axis=-1) \
+                    * (height > .7) \
+                    * (np.abs(angle) < .2)
+
+        done = ~not_done
+        done = done[:,None]
+        return done
+    elif env_name == "Walker2d-v2":
+        assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
+
+        height = next_obs[:, 0]
+        angle = next_obs[:, 1]
+        not_done =  (height > 0.8) \
+                    * (height < 2.0) \
+                    * (angle > -1.0) \
+                    * (angle < 1.0)
+        done = ~not_done
+        done = done[:,None]
+        return done
+
 class MBEnsemble():
     def __init__(self, state_size, action_size, config, device):
                 
@@ -23,7 +50,7 @@ class MBEnsemble():
 
         self.n_rollouts = config.n_rollouts
         self.rollout_select = config.rollout_select
-        self.stop_early = 4
+        self.stop_early = 3
         self.elite_idxs = []
         
     def train(self, train_dataloader, test_dataloader):
@@ -37,7 +64,8 @@ class MBEnsemble():
                 # train
                 train_losses = []
                 for (s, a, r, ns, d) in train_dataloader:
-                    targets = torch.cat((ns,r), dim=-1).to(self.device)
+                    delta_state = ns - s
+                    targets = torch.cat((delta_state, r), dim=-1).to(self.device)
                     loss = model.calc_loss(s, a, targets)
                     model.optimize(loss)
                     
@@ -48,7 +76,8 @@ class MBEnsemble():
                 validation_losses = []
                 for (s, a, r, ns, d) in test_dataloader:
                     with torch.no_grad():
-                        targets = torch.cat((ns,r), dim=-1).to(self.device)
+                        delta_state = ns - s
+                        targets = torch.cat((delta_state,r), dim=-1).to(self.device)
                         validation_loss = model.calc_loss(s, a, targets)
                     validation_losses.append(validation_loss.item())
                     
@@ -97,7 +126,8 @@ class MBEnsemble():
             else:
                 predictions = all_ensemble_predictions.mean(0)
             assert predictions.shape == (self.n_rollouts, states.shape[1] + 1)
-            next_states = predictions[:, :-1].cpu().numpy()
+            delta_state = predictions[:, :-1].cpu().numpy()
+            next_states = states + delta_state
             rewards = predictions[:, -1].cpu().numpy()
             dones = torch.zeros(rewards.shape)
             for (s, a, r, ns, d) in zip(states, actions, rewards, next_states, dones):
