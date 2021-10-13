@@ -12,6 +12,7 @@ import random
 from agent import SAC
 from model import MBEnsemble
 from utils import evaluate
+import multipro
 
 def get_config():
     parser = argparse.ArgumentParser(description='RL')
@@ -25,6 +26,7 @@ def get_config():
     parser.add_argument("--save_every", type=int, default=100, help="Saves the network every x epochs, default: 25")
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size, default: 256")
     parser.add_argument("--npolicy_updates", type=int, default=20, help="")
+    parser.add_argument("--parallel_envs", type=int, default=10, help="")
     
     # SAC params
     parser.add_argument("--gamma", type=float, default=0.99, help="")
@@ -60,9 +62,9 @@ def train(config):
     np.random.seed(config.seed)
     random.seed(config.seed)
     torch.manual_seed(config.seed)
-    env = gym.make(config.env)
+    envs = multipro.SubprocVecEnv([lambda: gym.make(config.env) for i in range(config.parallel_envs)])
     evaluation_env = gym.make(config.env)
-    env.seed(config.seed)
+    envs.seed(config.seed)
     evaluation_env.seed(config.seed+1234)
     
     state_size = evaluation_env.observation_space.shape[0]
@@ -103,7 +105,7 @@ def train(config):
 
         # do training
         for i in range(1, config.episodes+1):
-            state = env.reset()
+            state = envs.reset()
             episode_steps = 0
             epistemic_uncertainty_ = []
             while episode_steps < config.episode_length:
@@ -114,8 +116,8 @@ def train(config):
                     wandb.log({"Episode": i, "MB Loss": loss}, step=steps)                
 
                 action = agent.get_action(state)
-                steps += 1
-                next_state, reward, done, _ = env.step(action)
+                steps += config.parallel_envs
+                next_state, reward, done, _ = envs.step(action)
                 mb_buffer.add(state, action, reward, next_state, done)
 
                 kstep = get_kstep(e=i, kstep_start=config.kstep_start,
@@ -130,9 +132,9 @@ def train(config):
                                                                                                            mb_buffer,
                                                                                                            config.real_data_ratio)
                 state = next_state
-                episode_steps += 1
-                if done:
-                    state = env.reset()
+                episode_steps += config.parallel_envs
+                if done.any():
+                    state = envs.reset()
 
             # do evaluation runs 
             rewards = evaluate(evaluation_env, agent)

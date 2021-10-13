@@ -6,7 +6,7 @@ import numpy as np
 
 
 def termination_fn(env_name, obs, act, next_obs):
-    if env_name == "Hopper-v2":
+    if env_name == "HopperBulletEnv-v":
         assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
 
         height = next_obs[:, 0]
@@ -19,7 +19,7 @@ def termination_fn(env_name, obs, act, next_obs):
         done = ~not_done
         done = done[:,None]
         return done
-    elif env_name == "Walker2d-v2":
+    elif env_name == "Walker2dBulletEnv-v0":
         assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
 
         height = next_obs[:, 0]
