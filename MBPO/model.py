@@ -5,7 +5,7 @@ import random
 import numpy as np
 
 
-def termination_fn(env_name, obs, act, next_obs):
+def termination_fn(env_name, obs, act, next_obs, rewards):
     if env_name == "HopperBulletEnv-v":
         assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
 
@@ -31,6 +31,10 @@ def termination_fn(env_name, obs, act, next_obs):
         done = ~not_done
         done = done[:,None]
         return done
+    else:
+        done = torch.zeros(rewards.shape)
+        return done
+        
 
 class MBEnsemble():
     def __init__(self, state_size, action_size, config, device):
@@ -52,6 +56,8 @@ class MBEnsemble():
         self.rollout_select = config.rollout_select
         self.elite_size = config.elite_size
         self.elite_idxs = []
+        
+        self.env_name = config.env
         
     def train(self, train_dataloader):
         epoch_losses = []
@@ -103,7 +109,7 @@ class MBEnsemble():
             delta_state = predictions[:, :-1].cpu().numpy()
             next_states = states + delta_state
             rewards = predictions[:, -1].cpu().numpy()
-            dones = torch.zeros(rewards.shape)
+            dones = termination_fn(self.env_name, states, actions, next_states, rewards)
             for (s, a, r, ns, d) in zip(states, actions, rewards, next_states, dones):
                 buffer.add(s, a, r, ns, d)
             states = next_states
