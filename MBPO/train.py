@@ -11,7 +11,6 @@ from utils import save, collect_random
 import random
 from agent import SAC
 from model import MBEnsemble
-import multipro
 from utils import evaluate
 
 def get_config():
@@ -26,7 +25,6 @@ def get_config():
     parser.add_argument("--save_every", type=int, default=100, help="Saves the network every x epochs, default: 25")
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size, default: 256")
     parser.add_argument("--npolicy_updates", type=int, default=20, help="")
-    parser.add_argument("--parallel_envs", type=int, default=1, help="Number of parallel environments, default: 1")
     
     # SAC params
     parser.add_argument("--gamma", type=float, default=0.99, help="")
@@ -34,10 +32,13 @@ def get_config():
     parser.add_argument("--sac_hidden_size", type=int, default=256, help="")
     parser.add_argument("--sac_lr", type=float, default=5e-4, help="")
     parser.add_argument("--clip_grad", type=float, default=10, help="")
+    parser.add_argument("--real_data_ratio", type=float, default=0.05, help="")
     ## MB params
     parser.add_argument("--mb_buffer_size", type=int, default=100_000, help="")
+    parser.add_argument("--model_based_batch_size", type=int, default=256, help="")
     parser.add_argument("--n_rollouts", type=int, default=400, help="")
     parser.add_argument("--ensembles", type=int, default=7, help="")
+    parser.add_argument("--elite_size", type=int, default=5, help="")
     parser.add_argument("--hidden_size", type=int, default=200, help="")
     parser.add_argument("--mb_lr", type=float, default=1e-2, help="")
     parser.add_argument("--update_frequency", type=int, default=250, help="")
@@ -53,16 +54,16 @@ def get_config():
     return args 
 
 def get_kstep(e, kstep_start, kstep_end, epis_start, epis_end):
-    return int(min(max(kstep_start + ((e-epis_start)/(epis_end-epis_start)) * (kstep_end-kstep_start), kstep_start), kstep_end))
+    return int(min(max(kstep_start + (e-epis_start)/(epis_end-epis_start) * (kstep_end-kstep_start), kstep_start), kstep_end))
 
 def train(config):
     np.random.seed(config.seed)
     random.seed(config.seed)
     torch.manual_seed(config.seed)
-    envs = multipro.SubprocVecEnv([lambda: gym.make(config.env) for i in range(config.parallel_envs)])
+    env = gym.make(config.env)
     evaluation_env = gym.make(config.env)
-    envs.seed(config.seed)
-    evaluation_env.seed(config.seed)
+    env.seed(config.seed)
+    evaluation_env.seed(config.seed+1234)
     
     state_size = evaluation_env.observation_space.shape[0]
     action_size = evaluation_env.action_space.shape[0]
@@ -102,19 +103,19 @@ def train(config):
 
         # do training
         for i in range(1, config.episodes+1):
-            state = envs.reset()
+            state = env.reset()
             episode_steps = 0
             epistemic_uncertainty_ = []
             while episode_steps < config.episode_length:
 
                 if total_steps % config.update_frequency == 0:
-                    train_dataloader, test_dataloader = mb_buffer.get_dataloader(batch_size=256)
-                    loss, mean_epochs  = ensemble.train(train_dataloader, test_dataloader)
-                    wandb.log({"Episode": i, "MB Loss": loss, "MB-epochs": mean_epochs}, step=steps)                
+                    data_loader = mb_buffer.get_dataloader(batch_size=config.model_based_batch_size)
+                    loss = ensemble.train(data_loader)
+                    wandb.log({"Episode": i, "MB Loss": loss}, step=steps)                
 
                 action = agent.get_action(state)
-                steps += config.parallel_envs
-                next_state, reward, done, _ = envs.step(action)
+                steps += 1
+                next_state, reward, done, _ = env.step(action)
                 mb_buffer.add(state, action, reward, next_state, done)
 
                 kstep = get_kstep(e=i, kstep_start=config.kstep_start,
@@ -125,11 +126,13 @@ def train(config):
                 epistemic_uncertainty = ensemble.do_rollouts(buffer=buffer, env_buffer=mb_buffer, policy=agent, kstep=kstep)
                 epistemic_uncertainty_.append(epistemic_uncertainty)
                 for _ in range(config.npolicy_updates):
-                    policy_loss, alpha_loss, bellmann_error1, bellmann_error2, current_alpha = agent.learn(buffer.sample(), ensemble)
+                    policy_loss, alpha_loss, bellmann_error1, bellmann_error2, current_alpha = agent.learn(buffer,
+                                                                                                           mb_buffer,
+                                                                                                           config.real_data_ratio)
                 state = next_state
-                episode_steps += config.parallel_envs
-                if done.any():
-                    state = envs.reset()
+                episode_steps += 1
+                if done:
+                    state = env.reset()
 
             # do evaluation runs 
             rewards = evaluate(evaluation_env, agent)

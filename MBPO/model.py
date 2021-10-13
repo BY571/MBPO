@@ -50,52 +50,26 @@ class MBEnsemble():
 
         self.n_rollouts = config.n_rollouts
         self.rollout_select = config.rollout_select
-        self.stop_early = 3
+        self.elite_size = config.elite_size
         self.elite_idxs = []
         
-    def train(self, train_dataloader, test_dataloader):
+    def train(self, train_dataloader):
         epoch_losses = []
-        epochs_trained = []
         for model in self.ensemble:
-            epoch = 0
-            lowest_validation = np.inf
-            stop_early_counter = 0
-            while True:
-                # train
-                train_losses = []
-                for (s, a, r, ns, d) in train_dataloader:
-                    delta_state = ns - s
-                    targets = torch.cat((delta_state, r), dim=-1).to(self.device)
-                    loss = model.calc_loss(s, a, targets)
-                    model.optimize(loss)
-                    
-                    epoch_losses.append(loss.item())
-                    train_losses.append(loss.item())
-                # evaluation
-                model.eval()
-                validation_losses = []
-                for (s, a, r, ns, d) in test_dataloader:
-                    with torch.no_grad():
-                        delta_state = ns - s
-                        targets = torch.cat((delta_state,r), dim=-1).to(self.device)
-                        validation_loss = model.calc_loss(s, a, targets)
-                    validation_losses.append(validation_loss.item())
-                    
-                model.train()
-                epoch += 1
-
-                if np.mean(validation_losses) < lowest_validation:
-                    lowest_validation = np.mean(validation_losses)
-                    stop_early_counter = 0 
-                else:
-                    stop_early_counter += 1
-                if stop_early_counter >= self.stop_early:
-                    # print("-- Stop early at epoch: {} --".format(epoch))
-                    epochs_trained.append(epoch)
-                    break
-                
-
-        return np.mean(epoch_losses), np.mean(epochs_trained)
+            model_losses = []
+            for (s, a, r, ns, d) in train_dataloader:
+                delta_state = ns - s
+                targets = torch.cat((delta_state, r), dim=-1).to(self.device)
+                loss = model.calc_loss(s, a, targets)
+                model.optimize(loss)
+                model_losses.append(loss.item())
+            
+            epoch_losses.append(np.mean(model_losses))
+        assert len(epoch_losses) == self.n_ensembles, f"epoch_losses: {len(epoch_losses)} =/= {self.n_ensembles}"
+        sorted_loss_idx = np.argsort(epoch_losses)
+        self.elite_idxs = sorted_loss_idx[:self.elite_size].tolist()
+        
+        return np.mean(epoch_losses)
     
     def run_ensemble_prediction(self, states, actions):
         prediction_list = []
@@ -119,12 +93,12 @@ class MBEnsemble():
             all_ensemble_predictions = self.run_ensemble_prediction(states, actions)
             if self.rollout_select == "random":
                 # choose what predictions we select from what ensemble member
-                ensemble_idx = random.choices(range(len(self.ensemble)), k=self.n_rollouts)
+                ensemble_idx = random.choices(self.elite_idxs, k=self.n_rollouts)
                 step_idx = np.arange(states.shape[0])
                 # pick prediction based on ensemble idxs
                 predictions = all_ensemble_predictions[ensemble_idx, step_idx, :]
             else:
-                predictions = all_ensemble_predictions.mean(0)
+                predictions = all_ensemble_predictions[self.elite_idxs].mean(0)
             assert predictions.shape == (self.n_rollouts, states.shape[1] + 1)
             delta_state = predictions[:, :-1].cpu().numpy()
             next_states = states + delta_state

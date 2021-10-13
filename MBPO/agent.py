@@ -84,7 +84,7 @@ class SAC(nn.Module):
         actor_loss = ((alpha * log_pis.cpu() - min_Q )).mean()
         return actor_loss, log_pis
     
-    def learn(self, experiences, model):
+    def learn(self, fake_buffer, real_buffer, ratio):
         """Updates actor, critics and entropy_alpha parameters using given batch of experience tuples.
         Q_targets = r + γ * (min_critic_target(next_state, actor_target(next_state)) - α *log_pi(next_action|next_state))
         Critic_loss = MSE(Q, Q_target)
@@ -97,8 +97,20 @@ class SAC(nn.Module):
             experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tuples 
             gamma (float): discount factor
         """
-        states, actions, rewards, next_states, dones = experiences
-
+        batch_size = fake_buffer.batch_size
+        real_data_ratio = int(ratio * batch_size)
+        fake_data_ratio = batch_size - real_data_ratio
+        real_experience = real_buffer.sample(real_data_ratio)
+        fake_experience = fake_buffer.sample(fake_data_ratio)
+        
+        real_states, real_actions, real_rewards, real_next_states, real_dones = real_experience
+        fake_states, fake_actions, fake_rewards, fake_next_states, fake_dones = fake_experience
+        
+        states = torch.cat((real_states, fake_states))
+        actions = torch.cat((real_actions, fake_actions))
+        rewards = torch.cat((real_rewards, fake_rewards))
+        next_states = torch.cat((real_next_states, fake_next_states))
+        dones = torch.cat((real_dones, fake_dones))
         # ---------------------------- update actor ---------------------------- #
         current_alpha = copy.deepcopy(self.alpha)
         actor_loss, log_pis = self.calc_policy_loss(states, current_alpha)
