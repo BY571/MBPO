@@ -23,7 +23,7 @@ def get_config():
     parser.add_argument("--buffer_size", type=int, default=1_000_000, help="Maximal training dataset size, default: 1_000_000")
     parser.add_argument("--seed", type=int, default=1, help="Seed, default: 1")
     parser.add_argument("--log_video", type=int, default=0, help="Log agent behaviour to wanbd when set to 1, default: 0")
-    parser.add_argument("--save_every", type=int, default=100, help="Saves the network every x epochs, default: 25")
+    parser.add_argument("--save_every", type=int, default=5, help="Saves the network every x epochs, default: 5")
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size, default: 256")
     parser.add_argument("--npolicy_updates", type=int, default=20, help="")
     parser.add_argument("--parallel_envs", type=int, default=10, help="")
@@ -148,8 +148,8 @@ def train(config):
                        "Steps": total_steps,
                        "Policy Loss": policy_loss,
                        "Alpha Loss": alpha_loss,
-                       "Bellmann error 1": bellmann_error1,
-                       "Bellmann error 2": bellmann_error2,
+                       "Bellman error 1": bellmann_error1,
+                       "Bellman error 2": bellmann_error2,
                        "Alpha": current_alpha,
                        "Epistemic uncertainty": np.mean(epistemic_uncertainty_),
                        "Steps": steps,
