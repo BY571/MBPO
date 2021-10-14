@@ -26,7 +26,7 @@ def get_config():
     parser.add_argument("--save_every", type=int, default=5, help="Saves the network every x epochs, default: 5")
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size, default: 256")
     parser.add_argument("--npolicy_updates", type=int, default=20, help="")
-    parser.add_argument("--parallel_envs", type=int, default=10, help="")
+    parser.add_argument("--parallel_envs", type=int, default=5, help="")
     
     # SAC params
     parser.add_argument("--gamma", type=float, default=0.99, help="")
@@ -127,7 +127,7 @@ def train(config):
                 
                 epistemic_uncertainty = ensemble.do_rollouts(buffer=buffer, env_buffer=mb_buffer, policy=agent, kstep=kstep)
                 epistemic_uncertainty_.append(epistemic_uncertainty)
-                for _ in range(config.npolicy_updates):
+                for _ in range(config.npolicy_updates * config.parallel_envs):
                     policy_loss, alpha_loss, bellmann_error1, bellmann_error2, current_alpha = agent.learn(buffer,
                                                                                                            mb_buffer,
                                                                                                            config.real_data_ratio)
