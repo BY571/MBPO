@@ -52,7 +52,7 @@ class MBEnsemble():
                                                device=device).to(device)
             self.ensemble.append(dynamics)          
 
-        self.n_rollouts = config.n_rollouts
+        self.n_rollouts = config.n_rollouts * config.parallel_envs
         self.rollout_select = config.rollout_select
         self.elite_size = config.elite_size
         self.elite_idxs = []
@@ -62,7 +62,6 @@ class MBEnsemble():
     def train(self, train_dataloader):
         epoch_losses = []
         for model in self.ensemble:
-            model_losses = []
             for (s, a, r, ns, d) in train_dataloader:
                 delta_state = ns - s
                 targets = torch.cat((delta_state, r), dim=-1).to(self.device)
