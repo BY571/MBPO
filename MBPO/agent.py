@@ -131,20 +131,17 @@ class SAC(nn.Module):
             next_action, log_pis_next = self.actor_local.evaluate(next_states)
             Q_target1_next = self.critic1_target(next_states, next_action)
             Q_target2_next = self.critic2_target(next_states, next_action)
-            Q_target_next = torch.min(Q_target1_next, Q_target2_next) - self.alpha * log_pis_next.squeeze(0)
+            Q_target_next = torch.min(Q_target1_next, Q_target2_next) - self.alpha.to(self.device) * log_pis_next.squeeze(0)
             # Compute Q targets for current states (y_i)
             Q_targets = rewards.cpu() + (self.gamma * (1 - dones.cpu()) * Q_target_next.cpu()) 
-
 
         # Compute critic loss
         q1 = self.critic1(states, actions)
         q2 = self.critic2(states, actions)
-        
-        
+            
         critic1_loss = 0.5 * F.mse_loss(q1.cpu(), Q_targets)
         critic2_loss = 0.5 * F.mse_loss(q2.cpu(), Q_targets)
 
-        
         # Update critics
         # critic 1
         self.critic1_optimizer.zero_grad()

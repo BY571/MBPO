@@ -68,9 +68,9 @@ class MBEnsemble():
                 targets = torch.cat((delta_state, r), dim=-1).to(self.device)
                 loss = model.calc_loss(s, a, targets)
                 model.optimize(loss)
-                model_losses.append(loss.item())
+
             
-            epoch_losses.append(np.mean(model_losses))
+            epoch_losses.append(loss.item())
         assert len(epoch_losses) == self.n_ensembles, f"epoch_losses: {len(epoch_losses)} =/= {self.n_ensembles}"
         sorted_loss_idx = np.argsort(epoch_losses)
         self.elite_idxs = sorted_loss_idx[:self.elite_size].tolist()
