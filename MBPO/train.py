@@ -38,7 +38,7 @@ def get_config():
     ## MB params
     parser.add_argument("--mb_buffer_size", type=int, default=100_000, help="")
     parser.add_argument("--model_based_batch_size", type=int, default=256, help="")
-    parser.add_argument("--n_rollouts", type=int, default=400, help="")
+    parser.add_argument("--n_rollouts", type=int, default=100000, help="")
     parser.add_argument("--ensembles", type=int, default=7, help="")
     parser.add_argument("--elite_size", type=int, default=5, help="")
     parser.add_argument("--hidden_size", type=int, default=200, help="")
@@ -113,20 +113,21 @@ def train(config):
                 if total_steps % config.update_frequency == 0:
                     data_loader = mb_buffer.get_dataloader(batch_size=config.model_based_batch_size)
                     loss = ensemble.train(data_loader)
-                    wandb.log({"Episode": i, "MB Loss": loss}, step=steps)                
+                    wandb.log({"Episode": i, "MB Loss": loss}, step=steps)
+                    kstep = get_kstep(e=i, kstep_start=config.kstep_start,
+                                    kstep_end=config.kstep_end,
+                                    epis_start=config.epis_start,
+                                    epis_end=config.epis_end)
+                    epistemic_uncertainty = ensemble.do_rollouts(buffer=buffer, env_buffer=mb_buffer, policy=agent, kstep=kstep)
+                    epistemic_uncertainty_.append(epistemic_uncertainty)           
 
                 action = agent.get_action(state)
                 steps += config.parallel_envs
                 next_state, reward, done, _ = envs.step(action)
                 mb_buffer.add(state, action, reward, next_state, done)
 
-                kstep = get_kstep(e=i, kstep_start=config.kstep_start,
-                                  kstep_end=config.kstep_end,
-                                  epis_start=config.epis_start,
-                                  epis_end=config.epis_end)
+
                 
-                epistemic_uncertainty = ensemble.do_rollouts(buffer=buffer, env_buffer=mb_buffer, policy=agent, kstep=kstep)
-                epistemic_uncertainty_.append(epistemic_uncertainty)
                 for _ in range(config.npolicy_updates * config.parallel_envs):
                     policy_loss, alpha_loss, bellmann_error1, bellmann_error2, current_alpha = agent.learn(buffer,
                                                                                                            mb_buffer,

@@ -32,7 +32,7 @@ def termination_fn(env_name, obs, act, next_obs, rewards):
         done = done[:,None]
         return done
     else:
-        done = torch.zeros(rewards.shape)
+        done = torch.zeros(rewards.shape).bool()
         return done
         
 
@@ -111,6 +111,8 @@ class MBEnsemble():
             dones = termination_fn(self.env_name, states, actions, next_states, rewards)
             for (s, a, r, ns, d) in zip(states, actions, rewards, next_states, dones):
                 buffer.add(s, a, r, ns, d)
+            if ~dones.sum() == 0:
+                break
             states = next_states
         # calculate epistemic uncertainty ~ variance between the ensembles 
         # over the course of training ensembles should all predict the same variance -> 0 
