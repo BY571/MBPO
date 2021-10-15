@@ -13,6 +13,7 @@ from agent import SAC
 from model import MBEnsemble
 from utils import evaluate
 import multipro
+from tqdm import tqdm
 
 def get_config():
     parser = argparse.ArgumentParser(description='RL')
@@ -36,9 +37,8 @@ def get_config():
     parser.add_argument("--clip_grad", type=float, default=10, help="")
     parser.add_argument("--real_data_ratio", type=float, default=0.1, help="")
     ## MB params
-    parser.add_argument("--mb_buffer_size", type=int, default=100_000, help="")
     parser.add_argument("--model_based_batch_size", type=int, default=256, help="")
-    parser.add_argument("--n_rollouts", type=int, default=100000, help="")
+    parser.add_argument("--n_rollouts", type=int, default=100_000, help="")
     parser.add_argument("--ensembles", type=int, default=7, help="")
     parser.add_argument("--elite_size", type=int, default=5, help="")
     parser.add_argument("--hidden_size", type=int, default=200, help="")
@@ -58,6 +58,20 @@ def get_config():
 def get_kstep(e, kstep_start, kstep_end, epis_start, epis_end):
     return int(min(max(kstep_start + (e-epis_start)/(epis_end-epis_start) * (kstep_end-kstep_start), kstep_start), kstep_end))
 
+def calc_mb_buffer_size(config, rollout_length):
+    rollouts_per_epoch = config.n_rollouts * config.episode_length / config.update_frequency
+    model_steps_per_epoch = int(rollout_length * rollouts_per_epoch)
+    return model_steps_per_epoch
+
+def resize_buffer(config, kstep, buffer, device):
+    buffer_size = calc_mb_buffer_size(config, kstep)
+    all_samples = buffer.return_all()
+    mb_buffer = MBReplayBuffer(buffer_size=buffer_size,
+                                device=device)
+    mb_buffer.push_batch(all_samples)
+    return buffer
+    
+    
 def train(config):
     np.random.seed(config.seed)
     random.seed(config.seed)
@@ -73,8 +87,7 @@ def train(config):
     
     steps = 0
     average10 = deque(maxlen=10)
-    total_steps = 0
-    
+    kstep = 1    
     with wandb.init(project="MBPO", name=config.run_name, config=config):
         
         agent = SAC(state_size=state_size,
@@ -91,12 +104,8 @@ def train(config):
 
         buffer = ReplayBuffer(buffer_size=config.buffer_size, batch_size=config.batch_size, device=device)
         
-        # rollouts_per_epoch = args.rollout_batch_size * args.epoch_length / args.model_train_freq
-        # model_steps_per_epoch = int(1 * rollouts_per_epoch)
-        # new_pool_size = args.model_retain_epochs * model_steps_per_epoch
-        
-        mb_buffer = MBReplayBuffer(buffer_size=config.mb_buffer_size,
-                                   batch_size=config.n_rollouts,
+        buffer_size = calc_mb_buffer_size(config, 1)
+        mb_buffer = MBReplayBuffer(buffer_size=buffer_size,
                                    device=device)
 
         collect_random(env=evaluation_env, dataset=mb_buffer, num_samples=5000)
@@ -104,36 +113,38 @@ def train(config):
             evaluation_env = gym.wrappers.Monitor(evaluation_env, './video', video_callable=lambda x: x%10==0, force=True)
 
         # do training
-        for i in range(1, config.episodes+1):
+        for i in tqdm(range(1, config.episodes+1)):
             state = envs.reset()
             episode_steps = 0
             epistemic_uncertainty_ = []
             while episode_steps < config.episode_length:
 
-                if total_steps % config.update_frequency == 0:
+                if steps % config.update_frequency == 0:
                     data_loader = mb_buffer.get_dataloader(batch_size=config.model_based_batch_size)
                     loss = ensemble.train(data_loader)
                     wandb.log({"Episode": i, "MB Loss": loss}, step=steps)
-                    kstep = get_kstep(e=i, kstep_start=config.kstep_start,
+                    new_kstep = get_kstep(e=i, kstep_start=config.kstep_start,
                                     kstep_end=config.kstep_end,
                                     epis_start=config.epis_start,
                                     epis_end=config.epis_end)
+
+                    if kstep != new_kstep:
+                        kstep = new_kstep
+                    mb_buffer = resize_buffer(config, kstep, mb_buffer, device)
                     epistemic_uncertainty, mean_rollout_length = ensemble.do_rollouts(buffer=buffer, env_buffer=mb_buffer, policy=agent, kstep=kstep)
                     epistemic_uncertainty_.append(epistemic_uncertainty)           
 
                 action = agent.get_action(state)
-                steps += config.parallel_envs
                 next_state, reward, done, _ = envs.step(action)
                 mb_buffer.add(state, action, reward, next_state, done)
 
-
-                
                 for _ in range(config.npolicy_updates * config.parallel_envs):
                     policy_loss, alpha_loss, bellmann_error1, bellmann_error2, current_alpha = agent.learn(buffer,
                                                                                                            mb_buffer,
                                                                                                            config.real_data_ratio)
                 state = next_state
                 episode_steps += config.parallel_envs
+                steps += config.parallel_envs
                 if done.any():
                     state = envs.reset()
 
@@ -141,12 +152,11 @@ def train(config):
             rewards = evaluate(evaluation_env, agent)
             
             average10.append(rewards)
-            total_steps += episode_steps
             print("Episode: {} | Reward: {} | Polciy Loss: {} | Steps: {}".format(i, rewards, policy_loss, steps,))
             
             wandb.log({"Reward": rewards,
                        "Average10": np.mean(average10),
-                       "Steps": total_steps,
+                       "Steps": steps,
                        "Policy Loss": policy_loss,
                        "Alpha Loss": alpha_loss,
                        "Bellman error 1": bellmann_error1,
