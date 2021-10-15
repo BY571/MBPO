@@ -3,6 +3,7 @@ import random
 import torch
 from collections import deque, namedtuple
 from torch.utils.data import TensorDataset, DataLoader
+from operator import itemgetter
 
 class ReplayBuffer:
     """Fixed-size buffer to store experience tuples."""
@@ -69,10 +70,8 @@ class MBReplayBuffer:
         
     def sample(self, samples=None):
         """Randomly sample a batch of experiences from memory."""
-        if samples == None:
-            experiences = random.sample(self.memory, k=self.batch_size)
-        else:
-            experiences = random.sample(self.memory, k=samples)
+        idxes = np.random.randint(0, len(self.buffer), samples)
+        experiences = list(itemgetter(*idxes)(self.buffer))
         states = torch.from_numpy(np.stack([e.state for e in experiences if e is not None])).float().to(self.device)
         actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).float().to(self.device)
         rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(self.device)

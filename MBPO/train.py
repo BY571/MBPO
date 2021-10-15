@@ -34,7 +34,7 @@ def get_config():
     parser.add_argument("--sac_hidden_size", type=int, default=256, help="")
     parser.add_argument("--sac_lr", type=float, default=5e-4, help="")
     parser.add_argument("--clip_grad", type=float, default=10, help="")
-    parser.add_argument("--real_data_ratio", type=float, default=0.05, help="")
+    parser.add_argument("--real_data_ratio", type=float, default=0.1, help="")
     ## MB params
     parser.add_argument("--mb_buffer_size", type=int, default=100_000, help="")
     parser.add_argument("--model_based_batch_size", type=int, default=256, help="")
@@ -118,7 +118,7 @@ def train(config):
                                     kstep_end=config.kstep_end,
                                     epis_start=config.epis_start,
                                     epis_end=config.epis_end)
-                    epistemic_uncertainty = ensemble.do_rollouts(buffer=buffer, env_buffer=mb_buffer, policy=agent, kstep=kstep)
+                    epistemic_uncertainty, mean_rollout_length = ensemble.do_rollouts(buffer=buffer, env_buffer=mb_buffer, policy=agent, kstep=kstep)
                     epistemic_uncertainty_.append(epistemic_uncertainty)           
 
                 action = agent.get_action(state)
@@ -153,6 +153,7 @@ def train(config):
                        "Bellman error 2": bellmann_error2,
                        "Alpha": current_alpha,
                        "Epistemic uncertainty": np.mean(epistemic_uncertainty_),
+                       "Mean rollout length": mean_rollout_length,
                        "Steps": steps,
                        "Kstep": kstep,
                        "Episode": i,

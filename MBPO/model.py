@@ -93,9 +93,11 @@ class MBEnsemble():
         
         states, _, _, _, _ = env_buffer.sample(self.n_rollouts)
         states = states.cpu().numpy()
+        steps_added = []
         for k in range(kstep):
             actions = policy.get_action(states)
             all_ensemble_predictions = self.run_ensemble_prediction(states, actions)
+            steps_added.append(len(states))
             if self.rollout_select == "random":
                 # choose what predictions we select from what ensemble member
                 ensemble_idx = random.choices(self.elite_idxs, k=self.n_rollouts)
@@ -111,15 +113,18 @@ class MBEnsemble():
             dones = termination_fn(self.env_name, states, actions, next_states, rewards)
             for (s, a, r, ns, d) in zip(states, actions, rewards, next_states, dones):
                 buffer.add(s, a, r, ns, d)
-            if ~dones.sum() == 0:
+            nonterm_mask = ~dones.squeeze(-1)
+            if nonterm_mask.sum() == 0:
                 break
-            states = next_states
+            states = next_states[nonterm_mask]
         # calculate epistemic uncertainty ~ variance between the ensembles 
         # over the course of training ensembles should all predict the same variance -> 0 
         # model is very certain what will happen
         variance_over_each_state = all_ensemble_predictions.var(0)
         whole_batch_uncertainty = variance_over_each_state.var()
-        return whole_batch_uncertainty.item()
+        # calculate mean rollout length
+        mean_rollout_length = sum(steps_added) / self.n_rollouts
+        return whole_batch_uncertainty.item(), mean_rollout_length
 
     def value_expansion(self, rewards, next_state, policy, gamma=0.99):
         rollout_reward = np.zeros((rewards.shape))
