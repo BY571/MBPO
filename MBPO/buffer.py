@@ -59,8 +59,8 @@ class MBReplayBuffer:
         """
         self.device = device
         self.buffer_size = buffer_size
-        self.memory = deque(maxlen=buffer_size)  
-
+        self.memory = deque(maxlen=buffer_size)
+        self.position = 0
         self.experience = namedtuple("Experience", field_names=["state", "action", "reward", "next_state", "done"])
     
     def add(self, state, action, reward, next_state, done):
@@ -96,17 +96,7 @@ class MBReplayBuffer:
         return self.memory
     
     def push_batch(self, batch):
-        if len(self.memory) < self.buffer_size:
-            append_len = min(self.buffer_size - len(self.memory), len(batch))
-            self.memory.extend([None] * append_len)
-
-        if self.position + len(batch) < self.buffer_size:
-            self.memory[self.position : self.position + len(batch)] = batch
-            self.position += len(batch)
-        else:
-            self.memory[self.position : len(self.memory)] = batch[:len(self.memory) - self.position]
-            self.memory[:len(batch) - len(self.memory) + self.position] = batch[len(self.memory) - self.position:]
-            self.position = len(batch) - len(self.memory) + self.position
+        for i in batch: self.memory.append(i)
         
     def __len__(self):
         """Return the current size of internal memory."""
