@@ -119,7 +119,7 @@ class DynamicsModel(nn.Module):
         self.min_logvar = Variable(-torch.ones((1, state_size + 1)).type(torch.FloatTensor) * 10, requires_grad=True).to(device)
         self.max_logvar = Variable(torch.ones((1, state_size + 1)).type(torch.FloatTensor) / 2, requires_grad=True).to(device)
         
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=1e-4)
         
     def forward(self, state, action):
         x = torch.cat((state, action), dim=-1)
@@ -136,13 +136,10 @@ class DynamicsModel(nn.Module):
         log_var = self.max_logvar - F.softplus(self.max_logvar - self.log_var(x))
         log_var = self.min_logvar + F.softplus(log_var - self.min_logvar)
         
-        dist = Normal(mu, log_var.exp())
-        output = dist.sample()
-        
-        return output, (mu, log_var)
+        return mu, log_var.exp()
     
     def calc_loss(self, state, action, targets):
-        _, (mu, log_var) = self(state, action)
+        mu, log_var = self(state, action)
         inv_var = (-log_var).exp()
         loss = ((mu - targets)**2 * inv_var).mean(-1).mean(-1) + log_var.mean(-1).mean(-1)
         return loss
