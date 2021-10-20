@@ -16,7 +16,7 @@ import multipro
 from tqdm import tqdm
 
 def get_config():
-    parser = argparse.ArgumentParser(description='RL')
+    parser = argparse.ArgumentParser()
     parser.add_argument("--run_name", type=str, default="MBPO-SAC", help="Run name, default: MBPO-SAC")
     parser.add_argument("--env", type=str, default="Pendulum-v0", help="Gym environment name, default: Pendulum-v0")
     parser.add_argument("--episodes", type=int, default=100, help="Number of episodes, default: 100")
@@ -27,7 +27,7 @@ def get_config():
     parser.add_argument("--save_every", type=int, default=5, help="Saves the network every x epochs, default: 5")
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size, default: 256")
     parser.add_argument("--npolicy_updates", type=int, default=20, help="")
-    parser.add_argument("--parallel_envs", type=int, default=5, help="")
+    parser.add_argument("--parallel_envs", type=int, default=1, help="")
     
     # SAC params
     parser.add_argument("--gamma", type=float, default=0.99, help="")

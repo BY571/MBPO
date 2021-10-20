@@ -136,10 +136,13 @@ class DynamicsModel(nn.Module):
         log_var = self.max_logvar - F.softplus(self.max_logvar - self.log_var(x))
         log_var = self.min_logvar + F.softplus(log_var - self.min_logvar)
         
-        return mu, log_var.exp()
+        dist = Normal(mu, log_var.exp())
+        output = dist.sample()
+        
+        return output, (mu, log_var)
     
     def calc_loss(self, state, action, targets):
-        mu, log_var = self(state, action)
+        _, (mu, log_var) = self(state, action)
         inv_var = (-log_var).exp()
         loss = ((mu - targets)**2 * inv_var).mean(-1).mean(-1) + log_var.mean(-1).mean(-1)
         return loss

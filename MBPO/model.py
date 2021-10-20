@@ -1,6 +1,5 @@
 from networks import DynamicsModel
 import torch
-import torch.optim as optim
 import random
 import numpy as np
 
@@ -77,19 +76,16 @@ class MBEnsemble():
         return np.mean(epoch_losses)
     
     def run_ensemble_prediction(self, states, actions):
-        mean_predictions = []
-        std_predictions = []
+        prediction_list = []
         with torch.no_grad():
             for model in self.ensemble:
-                mu, log_var = model(torch.from_numpy(states).float().to(self.device),
+                predictions, _ = model(torch.from_numpy(states).float().to(self.device),
                                         torch.from_numpy(actions).float().to(self.device))
-                mean_predictions.append(mu.unsqueeze(0))
-                std_predictions.append(log_var.unsqueeze(0))
-        all_mean_predictions = torch.cat(mean_predictions, axis=0)
-        all_std_predictions = torch.cat(std_predictions, axis=0)
+                prediction_list.append(predictions.unsqueeze(0))
+        all_ensemble_predictions = torch.cat(prediction_list, axis=0) 
         # [ensembles, batch, prediction_shape]
-        assert all_mean_predictions.shape == (self.n_ensembles, states.shape[0], states.shape[1] + 1)
-        return all_mean_predictions.cpu().numpy(), all_std_predictions.cpu().numpy()
+        assert all_ensemble_predictions.shape == (self.n_ensembles, states.shape[0], states.shape[1] + 1)
+        return all_ensemble_predictions
 
 
     def do_rollouts(self, buffer, env_buffer, policy, kstep):
@@ -99,22 +95,20 @@ class MBEnsemble():
         steps_added = []
         for k in range(kstep):
             actions = policy.get_action(states)
-            (means, stds) = self.run_ensemble_prediction(states, actions)
-            means[:,:,1:] += states
-            stds = np.sqrt(stds)
-            ensemble_samples = means + np.random.normal(size=means.shape) * stds
+            all_ensemble_predictions = self.run_ensemble_prediction(states, actions)
             steps_added.append(len(states))
             if self.rollout_select == "random":
                 # choose what predictions we select from what ensemble member
                 ensemble_idx = random.choices(self.elite_idxs, k=self.n_rollouts)
                 step_idx = np.arange(states.shape[0])
                 # pick prediction based on ensemble idxs
-                predictions = ensemble_samples[ensemble_idx, step_idx, :]
+                predictions = all_ensemble_predictions[ensemble_idx, step_idx, :]
             else:
-                predictions = ensemble_samples[self.elite_idxs].mean(0)
+                predictions = all_ensemble_predictions[self.elite_idxs].mean(0)
             assert predictions.shape == (self.n_rollouts, states.shape[1] + 1)
-            next_states = predictions[:, :-1]
-            rewards = predictions[:, -1]
+            delta_state = predictions[:, :-1].cpu().numpy()
+            next_states = states + delta_state
+            rewards = predictions[:, -1].cpu().numpy()
             dones = termination_fn(self.env_name, states, actions, next_states, rewards)
             for (s, a, r, ns, d) in zip(states, actions, rewards, next_states, dones):
                 buffer.add(s, a, r, ns, d)
