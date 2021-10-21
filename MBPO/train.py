@@ -16,7 +16,7 @@ import multipro
 from tqdm import tqdm
 
 def get_config():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(   )
     parser.add_argument("--run_name", type=str, default="MBPO-SAC", help="Run name, default: MBPO-SAC")
     parser.add_argument("--env", type=str, default="Pendulum-v0", help="Gym environment name, default: Pendulum-v0")
     parser.add_argument("--episodes", type=int, default=100, help="Number of episodes, default: 100")
@@ -120,9 +120,10 @@ def train(config):
             while episode_steps < config.episode_length:
 
                 if steps % config.update_frequency == 0:
-                    data_loader = mb_buffer.get_dataloader(batch_size=config.model_based_batch_size)
-                    loss = ensemble.train(data_loader)
-                    wandb.log({"Episode": i, "MB Loss": loss}, step=steps)
+                    train_loader, test_loader = mb_buffer.get_dataloader(batch_size=config.model_based_batch_size)
+                    losses, trained_epochs = ensemble.train(train_loader, test_loader)
+                    wandb.log({"Episode": i, "MB mean loss": np.mean(losses), "MB mean trained epochs": trained_epochs}, step=steps)
+                    print("Episode: {} | Ensemble losses: {}".format(i, losses))
                     new_kstep = get_kstep(e=i, kstep_start=config.kstep_start,
                                     kstep_end=config.kstep_end,
                                     epis_start=config.epis_start,

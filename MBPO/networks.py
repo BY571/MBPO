@@ -121,7 +121,7 @@ class DynamicsModel(nn.Module):
         
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=1e-4)
         
-    def forward(self, state, action):
+    def forward(self, state, action, return_log_var=False):
         x = torch.cat((state, action), dim=-1)
 
         x = self.fc1(x)
@@ -135,17 +135,22 @@ class DynamicsModel(nn.Module):
 
         log_var = self.max_logvar - F.softplus(self.max_logvar - self.log_var(x))
         log_var = self.min_logvar + F.softplus(log_var - self.min_logvar)
-        
-        dist = Normal(mu, log_var.exp())
-        output = dist.sample()
-        
-        return output, (mu, log_var)
+
+        if return_log_var:
+            return mu, log_var
+        else:
+            return mu, torch.exp(log_var)
     
-    def calc_loss(self, state, action, targets):
-        _, (mu, log_var) = self(state, action)
-        inv_var = (-log_var).exp()
-        loss = ((mu - targets)**2 * inv_var).mean(-1).mean(-1) + log_var.mean(-1).mean(-1)
-        return loss
+    def calc_loss(self, state, action, targets, include_var=True):
+        mu, log_var = self(state, action, return_log_var=True)
+        assert mu.shape == targets.shape
+        if include_var:
+            inv_var = (-log_var).exp()
+            loss = ((mu - targets)**2 * inv_var).mean(-1).mean(-1) + log_var.mean(-1).mean(-1)
+            return loss
+        else:
+            return ((mu - targets)**2).mean(-1).mean(-1)
+            
 
     def optimize(self, loss):
         self.optimizer.zero_grad()

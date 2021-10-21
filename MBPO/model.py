@@ -56,24 +56,61 @@ class MBEnsemble():
         self.elite_size = config.elite_size
         self.elite_idxs = []
         
+        self.max_not_improvements = 5
+        self.improvement_threshold = 0.01
+        self.break_counter = 0
         self.env_name = config.env
         
-    def train(self, train_dataloader):
-        epoch_losses = []
-        for model in self.ensemble:
-            for (s, a, r, ns, d) in train_dataloader:
-                delta_state = ns - s
-                targets = torch.cat((delta_state, r), dim=-1).to(self.device)
-                loss = model.calc_loss(s, a, targets)
-                model.optimize(loss)
+    def train(self, train_loader, test_loader):
+        losses = np.zeros(len(self.ensemble))
+        epochs_trained = np.zeros(len(self.ensemble))
+        for idx, model in enumerate(self.ensemble):
+            best_val_loss = 10_000 # not elegant 
+            self.break_counter = 0
+            break_training = False
+            while True:
+                model.train()
+                for (s, a, r, ns, d) in train_loader:
+                    delta_state = ns - s
+                    targets = torch.cat((delta_state, r), dim=-1).to(self.device)
+                    loss = model.calc_loss(s, a, targets)
+                    model.optimize(loss)
+                    epochs_trained[idx] += 1
+                    
+                # evaluation
+                model.eval()
+                with torch.no_grad():
+                    for (s, a, r, ns, d) in test_loader:
+                        delta_state = ns - s
+                        targets = torch.cat((delta_state, r), dim=-1).to(self.device)
+                        loss = model.calc_loss(s, a, targets, include_var=False)
+                        losses[idx] = loss.item()
+                    break_training, best_val_loss = self.test_break_condition(loss.item(), best_val_loss)
+                if break_training:
+                    break
 
             
-            epoch_losses.append(loss.item())
-        assert len(epoch_losses) == self.n_ensembles, f"epoch_losses: {len(epoch_losses)} =/= {self.n_ensembles}"
-        sorted_loss_idx = np.argsort(epoch_losses)
+        assert len(losses) == self.n_ensembles, f"epoch_losses: {len(losses)} =/= {self.n_ensembles}"
+        sorted_loss_idx = np.argsort(losses)
         self.elite_idxs = sorted_loss_idx[:self.elite_size].tolist()
         
-        return np.mean(epoch_losses)
+        return losses, np.mean(epochs_trained)
+    
+    def test_break_condition(self, current_loss, best_loss):
+        improvement = (best_loss - current_loss) / best_loss
+        if improvement > self.improvement_threshold:
+            best_loss = current_loss
+            keep_train = True
+        if keep_train:
+            self.break_counter = 0
+        else:
+            self.break_counter += 1
+        if self.break_counter >= self.max_not_improvements:
+            return True, best_loss
+        else:
+            return False, best_loss
+            
+    
     
     def run_ensemble_prediction(self, states, actions):
         prediction_list = []

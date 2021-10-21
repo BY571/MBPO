@@ -1,5 +1,7 @@
 import torch
 import numpy as np
+import gym
+from gym.spaces import Box
 
 def save(args, save_name, model, wandb, ep=None):
     import os
@@ -42,3 +44,24 @@ def evaluate(env, policy, eval_runs=5):
                 break
         reward_batch.append(rewards)
     return np.mean(reward_batch)
+
+
+class SingleEnvWrapper(gym.Wrapper):
+    def __init__(self, env):
+        super(SingleEnvWrapper, self).__init__(env)
+        obs_dim = env.observation_space.shape[0]
+        obs_dim += 2
+        self.observation_space = Box(low=-np.inf, high=np.inf, shape=(obs_dim,), dtype=np.float32)
+
+    def step(self, action):
+        obs, reward, done, info = self.env.step(action)
+        torso_height, torso_ang = self.env.sim.data.qpos[1:3]  # Need this in the obs for determining when to stop
+        obs = np.append(obs, [torso_height, torso_ang])
+
+        return obs, reward, done, info
+
+    def reset(self):
+        obs = self.env.reset()
+        torso_height, torso_ang = self.env.sim.data.qpos[1:3]
+        obs = np.append(obs, [torso_height, torso_ang])
+        return obs
