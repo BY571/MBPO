@@ -138,7 +138,7 @@ class MBEnsemble():
         for k in range(kstep):
             actions = policy.get_action(states)
             ensemble_means, ensemble_stds = self.run_ensemble_prediction(states, actions)
-            ensemble_means[:, :, 1:] += states
+            ensemble_means[:, :, :-1] += states
             ensemble_stds = np.sqrt(ensemble_stds)
             if self.probabilistic:
                 all_ensemble_predictions = ensemble_means + np.random.normal(size=ensemble_means.shape) * ensemble_stds
@@ -155,8 +155,8 @@ class MBEnsemble():
                 predictions = all_ensemble_predictions[self.elite_idxs].mean(0)
             assert predictions.shape == (self.n_rollouts, states.shape[1] + 1)
 
-            next_states = predictions[:, :-1].cpu().numpy()
-            rewards = predictions[:, -1].cpu().numpy()
+            next_states = predictions[:, :-1]
+            rewards = predictions[:, -1]
             dones = termination_fn(self.env_name, states, actions, next_states, rewards)
             for (s, a, r, ns, d) in zip(states, actions, rewards, next_states, dones):
                 buffer.add(s, a, r, ns, d)
