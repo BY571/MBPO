@@ -119,7 +119,7 @@ class MBEnsemble():
         with torch.no_grad():
             for model in self.ensemble:
                 mus, stds = model(torch.from_numpy(states).float().to(self.device),
-                                        torch.from_numpy(actions).float().to(self.device), return_log_var=True)
+                                        torch.from_numpy(actions).float().to(self.device), return_log_var=False)
                 mus_list.append(mus.unsqueeze(0))
                 stds_list.append(stds.unsqueeze(0))
         all_mus = torch.cat(mus_list, axis=0)

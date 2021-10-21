@@ -123,7 +123,7 @@ def train(config):
                     train_loader, test_loader = mb_buffer.get_dataloader(batch_size=config.model_based_batch_size)
                     losses, trained_epochs = ensemble.train(train_loader, test_loader)
                     wandb.log({"Episode": i, "MB mean loss": np.mean(losses), "MB mean trained epochs": trained_epochs}, step=steps)
-                    tqdm.write("Episode: {} | Ensemble losses: {}".format(i, losses))
+                    tqdm.write("\nEpisode: {} | Ensemble losses: {}".format(i, losses))
                     new_kstep = get_kstep(e=i, kstep_start=config.kstep_start,
                                     kstep_end=config.kstep_end,
                                     epis_start=config.epis_start,
@@ -153,7 +153,7 @@ def train(config):
             rewards = evaluate(evaluation_env, agent)
             
             average10.append(rewards)
-            tqdm.write("Episode: {} | Reward: {} | Polciy Loss: {} | Steps: {}".format(i, rewards, policy_loss, steps,))
+            tqdm.write("\nEpisode: {} | Reward: {} | Polciy Loss: {} | Steps: {}".format(i, rewards, policy_loss, steps,))
             
             wandb.log({"Reward": rewards,
                        "Average10": np.mean(average10),
