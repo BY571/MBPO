@@ -40,7 +40,7 @@ class MBEnsemble():
                 
         self.device = device
         self.ensemble = []
-
+        self.probabilistic = True
         self.n_ensembles = config.ensembles
         for i in range(self.n_ensembles):
             dynamics = DynamicsModel(state_size=state_size,
@@ -97,6 +97,7 @@ class MBEnsemble():
         return losses, np.mean(epochs_trained)
     
     def test_break_condition(self, current_loss, best_loss):
+        keep_train = False
         improvement = (best_loss - current_loss) / best_loss
         if improvement > self.improvement_threshold:
             best_loss = current_loss
@@ -113,16 +114,20 @@ class MBEnsemble():
     
     
     def run_ensemble_prediction(self, states, actions):
-        prediction_list = []
+        mus_list = []
+        stds_list = []
         with torch.no_grad():
             for model in self.ensemble:
-                predictions, _ = model(torch.from_numpy(states).float().to(self.device),
-                                        torch.from_numpy(actions).float().to(self.device))
-                prediction_list.append(predictions.unsqueeze(0))
-        all_ensemble_predictions = torch.cat(prediction_list, axis=0) 
+                mus, stds = model(torch.from_numpy(states).float().to(self.device),
+                                        torch.from_numpy(actions).float().to(self.device), return_log_var=True)
+                mus_list.append(mus.unsqueeze(0))
+                stds_list.append(stds.unsqueeze(0))
+        all_mus = torch.cat(mus_list, axis=0)
+        all_stds = torch.cat(stds_list, axis=0)
         # [ensembles, batch, prediction_shape]
-        assert all_ensemble_predictions.shape == (self.n_ensembles, states.shape[0], states.shape[1] + 1)
-        return all_ensemble_predictions
+        assert all_mus.shape == (self.n_ensembles, states.shape[0], states.shape[1] + 1)
+        assert all_stds.shape == (self.n_ensembles, states.shape[0], states.shape[1] + 1)
+        return all_mus.cpu().numpy(), all_stds.cpu().numpy()
 
 
     def do_rollouts(self, buffer, env_buffer, policy, kstep):
@@ -132,7 +137,13 @@ class MBEnsemble():
         steps_added = []
         for k in range(kstep):
             actions = policy.get_action(states)
-            all_ensemble_predictions = self.run_ensemble_prediction(states, actions)
+            ensemble_means, ensemble_stds = self.run_ensemble_prediction(states, actions)
+            ensemble_means[:, :, 1:] += states
+            ensemble_stds = np.sqrt(ensemble_stds)
+            if self.probabilistic:
+                all_ensemble_predictions = ensemble_means + np.random.normal(size=ensemble_means.shape) * ensemble_stds
+            else:
+                all_ensemble_predictions = ensemble_means
             steps_added.append(len(states))
             if self.rollout_select == "random":
                 # choose what predictions we select from what ensemble member
@@ -143,8 +154,8 @@ class MBEnsemble():
             else:
                 predictions = all_ensemble_predictions[self.elite_idxs].mean(0)
             assert predictions.shape == (self.n_rollouts, states.shape[1] + 1)
-            delta_state = predictions[:, :-1].cpu().numpy()
-            next_states = states + delta_state
+
+            next_states = predictions[:, :-1].cpu().numpy()
             rewards = predictions[:, -1].cpu().numpy()
             dones = termination_fn(self.env_name, states, actions, next_states, rewards)
             for (s, a, r, ns, d) in zip(states, actions, rewards, next_states, dones):
