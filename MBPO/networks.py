@@ -118,8 +118,8 @@ class DynamicsModel(nn.Module):
         
         self.activation = nn.SiLU()
 
-        self.min_logvar = nn.Parameter((-torch.ones((1, self.output_dim)).float() * 10).to(device), requires_grad=False)
-        self.max_logvar = nn.Parameter((torch.ones((1, self.output_dim)).float() / 2).to(device), requires_grad=False)
+        self.min_logvar = nn.Parameter((-torch.ones((1, state_size + 1)).float() * 10).to(device), requires_grad=False)
+        self.max_logvar = nn.Parameter((torch.ones((1, state_size + 1)).float() / 2).to(device), requires_grad=False)
         
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         
@@ -131,6 +131,8 @@ class DynamicsModel(nn.Module):
         x = self.fc2(x)
         x = self.activation(x)
         x = self.fc3(x)
+        x = self.activation(x)
+        x = self.fc4(x)
         x = self.activation(x)
         
         mu = self.mu(x)
