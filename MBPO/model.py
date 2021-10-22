@@ -69,20 +69,18 @@ class MBEnsemble():
         break_training = False
         while True:
             self.dynamics_model.train()
-            for (s, a, r, ns, d) in train_loader:
-                delta_state = ns - s
-                targets = torch.cat((delta_state, r), dim=-1).to(self.device)
-                loss = self.dynamics_model.calc_loss(s, a, targets)
+            for (x, y) in train_loader:
+
+                loss = self.dynamics_model.calc_loss(x, y)
                 self.dynamics_model.optimize(loss)
                 epochs_trained += 1
                 
             # evaluation
             self.dynamics_model.eval()
             with torch.no_grad():
-                for (s, a, r, ns, d) in test_loader:
-                    delta_state = ns - s
-                    targets = torch.cat((delta_state, r), dim=-1).to(self.device)
-                    val_losses = self.dynamics_model.calc_loss(s, a, targets, include_var=False)
+                for (val_x, val_y) in test_loader:
+
+                    val_losses = self.dynamics_model.calc_loss(val_x, val_y, include_var=False)
                     val_losses = val_losses.detach().cpu().numpy()
                     sorted_loss_idx = np.argsort(losses)
                     self.elite_idxs = sorted_loss_idx[:self.elite_size].tolist()
@@ -117,11 +115,12 @@ class MBEnsemble():
             return False
             
 
-    def run_ensemble_prediction(self, states, actions):
+    def run_ensemble_prediction(self, scaler, states, actions):
         with torch.no_grad():
-            mus, var = self.dynamics_model(torch.from_numpy(states).float().to(self.device),
-                                            torch.from_numpy(actions).float().to(self.device), 
-                                            return_log_var=False)
+            inputs = torch.cat((torch.from_numpy(states).float().to(self.device),
+                                torch.from_numpy(actions).float().to(self.device)), dim=-1)
+            inputs = scaler.transform(inputs)
+            mus, var = self.dynamics_model(inputs, return_log_var=False)
 
         # [ensembles, batch, prediction_shape]
         assert mus.shape == (self.n_ensembles, states.shape[0], states.shape[1] + 1)
@@ -129,14 +128,14 @@ class MBEnsemble():
         return mus.cpu().numpy(), var.cpu().numpy()
 
 
-    def do_rollouts(self, buffer, env_buffer, policy, kstep):
+    def do_rollouts(self, scaler, buffer, env_buffer, policy, kstep):
         
         states, _, _, _, _ = env_buffer.sample(self.n_rollouts)
         states = states.cpu().numpy()
         steps_added = []
         for k in range(kstep):
             actions = policy.get_action(states)
-            ensemble_means, ensemble_var = self.run_ensemble_prediction(states, actions)
+            ensemble_means, ensemble_var = self.run_ensemble_prediction(scaler, states, actions)
             ensemble_means[:, :, :-1] += states
             ensemble_var = np.sqrt(ensemble_var)
             if self.probabilistic:
@@ -172,18 +171,5 @@ class MBEnsemble():
         mean_rollout_length = sum(steps_added) / self.n_rollouts
         return whole_batch_uncertainty.item(), mean_rollout_length
 
-    def value_expansion(self, rewards, next_state, policy, gamma=0.99):
-        rollout_reward = np.zeros((rewards.shape))
-
-        for h in range(self.mve_horizon):
-            output_state = next_state
-            rollout_reward += (gamma**h * rewards.cpu().numpy())
-            action = policy.get_action(next_state)
-            predictions = self.run_ensemble_prediction(next_state, action).mean(0)
-            assert predictions.shape == (next_state.shape[0], next_state.shape[1]+1)
-            next_state = predictions[:, :-1].cpu().numpy()
-            rewards = predictions[:, -1].unsqueeze(-1)
-        
-        return torch.from_numpy(output_state).float().to(self.device), torch.from_numpy(rollout_reward).float().to(self.device)
             
     

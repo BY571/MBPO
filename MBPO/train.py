@@ -11,7 +11,7 @@ from utils import save, collect_random
 import random
 from agent import SAC
 from model import MBEnsemble
-from utils import evaluate
+from utils import evaluate, TorchStandardScaler
 import multipro
 from tqdm import tqdm
 
@@ -98,7 +98,9 @@ def train(config):
         ensemble = MBEnsemble(state_size=state_size,
                               action_size=action_size,
                               config=config,
-                              device=device)    
+                              device=device)
+        
+        Saler = TorchStandardScaler()
         
         wandb.watch(agent, log="gradients", log_freq=10)
 
