@@ -99,7 +99,7 @@ class MBEnsemble():
     
     def test_break_condition(self, current_losses):
         keep_train = False
-        for i in range(current_losses):
+        for i in range(len(current_losses)):
             current_loss = current_losses[i]
             best_loss = self._current_best[i]
             improvement = (best_loss - current_loss) / best_loss

@@ -136,7 +136,6 @@ class DynamicsModel(nn.Module):
 
     def __init__(self, state_size, action_size, ensemble_size=7, hidden_size=200, lr=1e-2, device="cpu"):
         super(DynamicsModel, self).__init__()
-        torch.manual_seed(seed)
         self.ensemble_size = ensemble_size
         self.fc1 = Ensemble_FC_Layer(state_size + action_size, hidden_size, ensemble_size)
         self.fc2 = Ensemble_FC_Layer(hidden_size, hidden_size, ensemble_size)
@@ -154,7 +153,7 @@ class DynamicsModel(nn.Module):
         
     def forward(self, state, action, return_log_var=False):
         x = torch.cat((state, action), dim=-1)
-
+        x = x[None, :, :].repeat(self.ensemble_size, 1, 1)
         x = self.fc1(x)
         x = self.activation(x)
         x = self.fc2(x)
@@ -176,7 +175,7 @@ class DynamicsModel(nn.Module):
     
     def calc_loss(self, state, action, targets, include_var=True):
         mu, log_var = self(state, action, return_log_var=True)
-        assert mu.shape == targets.shape
+        assert mu.shape[1:] == targets.shape
         if include_var:
             inv_var = (-log_var).exp()
             loss = ((mu - targets)**2 * inv_var).mean(-1).mean(-1).sum() + log_var.mean(-1).mean(-1).sum()
