@@ -100,7 +100,7 @@ def train(config):
                               config=config,
                               device=device)
         
-        Saler = TorchStandardScaler()
+        scaler = TorchStandardScaler()
         
         wandb.watch(agent, log="gradients", log_freq=10)
 
@@ -122,7 +122,7 @@ def train(config):
             while episode_steps < config.episode_length:
 
                 if steps % config.update_frequency == 0:
-                    train_loader, test_loader = mb_buffer.get_dataloader(batch_size=config.model_based_batch_size)
+                    train_loader, test_loader = mb_buffer.get_dataloader(scaler=scaler, batch_size=config.model_based_batch_size)
                     losses, trained_epochs = ensemble.train(train_loader, test_loader)
                     wandb.log({"Episode": i, "MB mean loss": np.mean(losses), "MB mean trained epochs": trained_epochs}, step=steps)
                     tqdm.write("\nEpisode: {} | Ensemble losses: {}".format(i, losses))
@@ -134,7 +134,11 @@ def train(config):
                     if kstep != new_kstep:
                         kstep = new_kstep
                     mb_buffer = resize_buffer(config, kstep, mb_buffer, device)
-                    epistemic_uncertainty, mean_rollout_length = ensemble.do_rollouts(buffer=buffer, env_buffer=mb_buffer, policy=agent, kstep=kstep)
+                    epistemic_uncertainty, mean_rollout_length = ensemble.do_rollouts(scaler=scaler,
+                                                                                      buffer=buffer,
+                                                                                      env_buffer=mb_buffer,
+                                                                                      policy=agent,
+                                                                                      kstep=kstep)
                     epistemic_uncertainty_.append(epistemic_uncertainty)           
 
                 action = agent.get_action(state)
