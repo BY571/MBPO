@@ -151,8 +151,7 @@ class DynamicsModel(nn.Module):
         
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         
-    def forward(self, state, action, return_log_var=False):
-        x = torch.cat((state, action), dim=-1)
+    def forward(self, x, return_log_var=False):
         x = x[None, :, :].repeat(self.ensemble_size, 1, 1)
         x = self.fc1(x)
         x = self.activation(x)
@@ -173,8 +172,8 @@ class DynamicsModel(nn.Module):
         else:
             return mu, torch.exp(log_var)
     
-    def calc_loss(self, state, action, targets, include_var=True):
-        mu, log_var = self(state, action, return_log_var=True)
+    def calc_loss(self, inputs, targets, include_var=True):
+        mu, log_var = self(inputs, return_log_var=True)
         assert mu.shape[1:] == targets.shape
         if include_var:
             inv_var = (-log_var).exp()
