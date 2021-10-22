@@ -39,17 +39,17 @@ class MBEnsemble():
     def __init__(self, state_size, action_size, config, device):
                 
         self.device = device
-        self.ensemble = []
+
         self.probabilistic = True
         self.n_ensembles = config.ensembles
-        for i in range(self.n_ensembles):
-            dynamics = DynamicsModel(state_size=state_size,
-                                               action_size=action_size,
-                                               hidden_size=config.hidden_size,
-                                               lr=config.mb_lr,
-                                               seed=i,
-                                               device=device).to(device)
-            self.ensemble.append(dynamics)          
+
+        self.dynamics_model = DynamicsModel(state_size=state_size,
+                                            action_size=action_size,
+                                            ensemble_size=self.n_ensembles,
+                                            hidden_size=config.hidden_size,
+                                            lr=config.mb_lr,
+                                            device=device).to(device)
+    
 
         self.n_rollouts = config.n_rollouts * config.parallel_envs
         self.rollout_select = config.rollout_select
@@ -57,77 +57,76 @@ class MBEnsemble():
         self.elite_idxs = []
         
         self.max_not_improvements = 5
+        self._current_best = [1e10 for i in range(self.n_ensembles)]
         self.improvement_threshold = 0.01
         self.break_counter = 0
         self.env_name = config.env
         
     def train(self, train_loader, test_loader):
-        losses = np.zeros(len(self.ensemble))
-        epochs_trained = np.zeros(len(self.ensemble))
-        for idx, model in enumerate(self.ensemble):
-            best_val_loss = 10_000 # not elegant 
-            self.break_counter = 0
-            break_training = False
-            while True:
-                model.train()
-                for (s, a, r, ns, d) in train_loader:
+        losses = 0
+        epochs_trained = 0
+        self.break_counter = 0
+        break_training = False
+        while True:
+            self.dynamics_model.train()
+            for (s, a, r, ns, d) in train_loader:
+                delta_state = ns - s
+                targets = torch.cat((delta_state, r), dim=-1).to(self.device)
+                loss = self.dynamics_model.calc_loss(s, a, targets)
+                self.dynamics_model.optimize(loss)
+                epochs_trained += 1
+                
+            # evaluation
+            self.dynamics_model.eval()
+            with torch.no_grad():
+                for (s, a, r, ns, d) in test_loader:
                     delta_state = ns - s
                     targets = torch.cat((delta_state, r), dim=-1).to(self.device)
-                    loss = model.calc_loss(s, a, targets)
-                    model.optimize(loss)
-                    epochs_trained[idx] += 1
-                    
-                # evaluation
-                model.eval()
-                with torch.no_grad():
-                    for (s, a, r, ns, d) in test_loader:
-                        delta_state = ns - s
-                        targets = torch.cat((delta_state, r), dim=-1).to(self.device)
-                        loss = model.calc_loss(s, a, targets, include_var=False)
-                        losses[idx] = loss.item()
-                    break_training, best_val_loss = self.test_break_condition(loss.item(), best_val_loss)
-                if break_training:
-                    break
+                    val_losses = self.dynamics_model.calc_loss(s, a, targets, include_var=False)
+                    val_losses = val_losses.detach().cpu().numpy()
+                    sorted_loss_idx = np.argsort(losses)
+                    self.elite_idxs = sorted_loss_idx[:self.elite_size].tolist()
+                    break_training = self.test_break_condition(val_losses)
+                    if break_training:
+                        break
+            if break_training:
+                break
 
             
-        assert len(losses) == self.n_ensembles, f"epoch_losses: {len(losses)} =/= {self.n_ensembles}"
-        sorted_loss_idx = np.argsort(losses)
-        self.elite_idxs = sorted_loss_idx[:self.elite_size].tolist()
+        assert len(val_losses) == self.n_ensembles, f"epoch_losses: {len(val_losses)} =/= {self.n_ensembles}"
         
-        return losses, np.mean(epochs_trained)
+        return val_losses, np.mean(epochs_trained)
     
-    def test_break_condition(self, current_loss, best_loss):
+    def test_break_condition(self, current_losses):
         keep_train = False
-        improvement = (best_loss - current_loss) / best_loss
-        if improvement > self.improvement_threshold:
-            best_loss = current_loss
-            keep_train = True
+        for i in range(current_losses):
+            current_loss = current_losses[i]
+            best_loss = self._current_best[i]
+            improvement = (best_loss - current_loss) / best_loss
+            if improvement > self.improvement_threshold:
+                self._current_best[i] = current_loss
+                keep_train = True
+    
         if keep_train:
             self.break_counter = 0
         else:
             self.break_counter += 1
         if self.break_counter >= self.max_not_improvements:
-            return True, best_loss
+            return True
         else:
-            return False, best_loss
+            return False
             
-    
-    
+
     def run_ensemble_prediction(self, states, actions):
-        mus_list = []
-        stds_list = []
         with torch.no_grad():
-            for model in self.ensemble:
-                mus, stds = model(torch.from_numpy(states).float().to(self.device),
-                                        torch.from_numpy(actions).float().to(self.device), return_log_var=False)
-                mus_list.append(mus.unsqueeze(0))
-                stds_list.append(stds.unsqueeze(0))
-        all_mus = torch.cat(mus_list, axis=0)
-        all_stds = torch.cat(stds_list, axis=0)
+            mus, var = self.dynamics_model(torch.from_numpy(states).float().to(self.device),
+                                            torch.from_numpy(actions).float().to(self.device), 
+                                            return_log_var=False)
+
         # [ensembles, batch, prediction_shape]
-        assert all_mus.shape == (self.n_ensembles, states.shape[0], states.shape[1] + 1)
-        assert all_stds.shape == (self.n_ensembles, states.shape[0], states.shape[1] + 1)
-        return all_mus.cpu().numpy(), all_stds.cpu().numpy()
+        assert mus.shape == (self.n_ensembles, states.shape[0], states.shape[1] + 1)
+        assert var.shape == (self.n_ensembles, states.shape[0], states.shape[1] + 1)
+        return mus.cpu().numpy(), var.cpu().numpy()
 
 
     def do_rollouts(self, buffer, env_buffer, policy, kstep):
@@ -137,11 +136,11 @@ class MBEnsemble():
         steps_added = []
         for k in range(kstep):
             actions = policy.get_action(states)
-            ensemble_means, ensemble_stds = self.run_ensemble_prediction(states, actions)
+            ensemble_means, ensemble_var = self.run_ensemble_prediction(states, actions)
             ensemble_means[:, :, :-1] += states
-            ensemble_stds = np.sqrt(ensemble_stds)
+            ensemble_var = np.sqrt(ensemble_var)
             if self.probabilistic:
-                all_ensemble_predictions = ensemble_means + np.random.normal(size=ensemble_means.shape) * ensemble_stds
+                all_ensemble_predictions = ensemble_means + np.random.normal(size=ensemble_means.shape) * ensemble_var
             else:
                 all_ensemble_predictions = ensemble_means
             steps_added.append(len(states))

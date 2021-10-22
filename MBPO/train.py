@@ -157,7 +157,6 @@ def train(config):
             
             wandb.log({"Reward": rewards,
                        "Average10": np.mean(average10),
-                       "Steps": steps,
                        "Policy Loss": policy_loss,
                        "Alpha Loss": alpha_loss,
                        "Bellman error 1": bellmann_error1,

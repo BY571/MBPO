@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.distributions import Normal
 import numpy as np
 import torch.nn.functional as F
-from torch.autograd import Variable
+
 
 
 def hidden_init(layer):
@@ -103,18 +103,47 @@ class Critic(nn.Module):
         x = F.relu(self.fc2(x))
         return self.fc3(x)
     
+
+class Ensemble_FC_Layer(nn.Module):
+    def __init__(self, in_features, out_features, ensemble_size, bias=True):
+        super(Ensemble_FC_Layer, self).__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.ensemble_size = ensemble_size
+        self.weight = nn.Parameter(torch.Tensor(ensemble_size, in_features, out_features))
+        torch.nn.init.xavier_uniform_(self.weight)
+        if bias:
+            self.bias = nn.Parameter(torch.zeros(ensemble_size, out_features))
+        else:
+            self.register_parameter('bias', None)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        pass
+
+
+    def forward(self, x) -> torch.Tensor:
+        w_times_x = torch.bmm(x, self.weight)
+        return torch.add(w_times_x, self.bias[:, None, :])  # w times x + b
+
+    def extra_repr(self) -> str:
+        return 'in_features={}, out_features={}, bias={}'.format(
+            self.in_features, self.out_features, self.bias is not None
+        )
+
     
 class DynamicsModel(nn.Module):
 
-    def __init__(self, state_size, action_size, hidden_size=200, seed=1, lr=1e-2, device="cpu"):
+    def __init__(self, state_size, action_size, ensemble_size=7, hidden_size=200, lr=1e-2, device="cpu"):
         super(DynamicsModel, self).__init__()
         torch.manual_seed(seed)
-        self.fc1 = nn.Linear(state_size + action_size, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, hidden_size)
-        self.fc3 = nn.Linear(hidden_size, hidden_size)
-        self.fc4 = nn.Linear(hidden_size, hidden_size)
-        self.mu = nn.Linear(hidden_size, state_size + 1)
-        self.log_var = nn.Linear(hidden_size, state_size + 1)
+        self.ensemble_size = ensemble_size
+        self.fc1 = Ensemble_FC_Layer(state_size + action_size, hidden_size, ensemble_size)
+        self.fc2 = Ensemble_FC_Layer(hidden_size, hidden_size, ensemble_size)
+        self.fc3 = Ensemble_FC_Layer(hidden_size, hidden_size, ensemble_size)
+        self.fc4 = Ensemble_FC_Layer(hidden_size, hidden_size, ensemble_size)
+        self.mu = Ensemble_FC_Layer(hidden_size, state_size + 1, ensemble_size)
+        self.log_var = Ensemble_FC_Layer(hidden_size, state_size + 1, ensemble_size)
         
         self.activation = nn.SiLU()
 
@@ -150,7 +179,7 @@ class DynamicsModel(nn.Module):
         assert mu.shape == targets.shape
         if include_var:
             inv_var = (-log_var).exp()
-            loss = ((mu - targets)**2 * inv_var).mean(-1).mean(-1) + log_var.mean(-1).mean(-1)
+            loss = ((mu - targets)**2 * inv_var).mean(-1).mean(-1).sum() + log_var.mean(-1).mean(-1).sum()
             return loss
         else:
             return ((mu - targets)**2).mean(-1).mean(-1)
