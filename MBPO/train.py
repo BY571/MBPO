@@ -42,7 +42,7 @@ def get_config():
     parser.add_argument("--ensembles", type=int, default=7, help="")
     parser.add_argument("--elite_size", type=int, default=5, help="")
     parser.add_argument("--hidden_size", type=int, default=200, help="")
-    parser.add_argument("--mb_lr", type=float, default=0.001, help="")
+    parser.add_argument("--mb_lr", type=float, default=1e-3, help="")
     parser.add_argument("--update_frequency", type=int, default=250, help="")
     parser.add_argument("--rollout_select", type=str, default="random", choices=["random", "mean"], help="Define how the rollouts are composed, randomly from a random selected member of the ensemble or as the mean over all ensembles, default: random")
     

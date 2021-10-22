@@ -112,14 +112,16 @@ class DynamicsModel(nn.Module):
         self.fc1 = nn.Linear(state_size + action_size, hidden_size)
         self.fc2 = nn.Linear(hidden_size, hidden_size)
         self.fc3 = nn.Linear(hidden_size, hidden_size)
+        self.fc4 = nn.Linear(hidden_size, hidden_size)
         self.mu = nn.Linear(hidden_size, state_size + 1)
         self.log_var = nn.Linear(hidden_size, state_size + 1)
         
         self.activation = nn.SiLU()
-        self.min_logvar = Variable(-torch.ones((1, state_size + 1)).type(torch.FloatTensor) * 10, requires_grad=True).to(device)
-        self.max_logvar = Variable(torch.ones((1, state_size + 1)).type(torch.FloatTensor) / 2, requires_grad=True).to(device)
+
+        self.min_logvar = nn.Parameter((-torch.ones((1, self.output_dim)).float() * 10).to(device), requires_grad=False)
+        self.max_logvar = nn.Parameter((torch.ones((1, self.output_dim)).float() / 2).to(device), requires_grad=False)
         
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=lr, weight_decay=1e-4)
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         
     def forward(self, state, action, return_log_var=False):
         x = torch.cat((state, action), dim=-1)
