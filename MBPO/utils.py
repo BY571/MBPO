@@ -47,11 +47,12 @@ def evaluate(env, policy, eval_runs=5):
 
 class TorchStandardScaler:
   def fit(self, x):
-    self.mean = x.mean(0, keepdim=True)
-    self.std = x.std(0, unbiased=False, keepdim=True)
+    self.mu = np.mean(x, axis=0, keepdims=True)
+    self.std = np.std(x, axis=0, keepdims=True)
+    self.std[self.std < 1e-12] = 1.0
   def transform(self, x):
-    x -= self.mean
-    x /= (self.std + 1e-7)
+    x -= self.mu
+    x /= self.std
     return x
 
 class SingleEnvWrapper(gym.Wrapper):
