@@ -50,7 +50,6 @@ class MBEnsemble():
                                             lr=config.mb_lr,
                                             device=device).to(device)
     
-
         self.n_rollouts = config.n_rollouts * config.parallel_envs
         self.rollout_select = config.rollout_select
         self.elite_size = config.elite_size
@@ -137,9 +136,9 @@ class MBEnsemble():
             actions = policy.get_action(states)
             ensemble_means, ensemble_var = self.run_ensemble_prediction(scaler, states, actions)
             ensemble_means[:, :, :-1] += states
-            ensemble_var = np.sqrt(ensemble_var)
+            ensemble_std = np.sqrt(ensemble_var)
             if self.probabilistic:
-                all_ensemble_predictions = ensemble_means + np.random.normal(size=ensemble_means.shape) * ensemble_var
+                all_ensemble_predictions = ensemble_means + np.random.normal(size=ensemble_means.shape) * ensemble_std
             else:
                 all_ensemble_predictions = ensemble_means
             steps_added.append(len(states))

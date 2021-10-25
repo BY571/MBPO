@@ -81,7 +81,7 @@ class MBReplayBuffer:
 
         return (states, actions, rewards, next_states, dones)
 
-    def get_dataloader(self, scaler, batch_size=256, data_split=0.15):
+    def get_dataloader(self, scaler, batch_size=256, data_split=0.20):
         states = torch.from_numpy(np.stack([e.state for e in self.memory if e is not None])).float().to(self.device)
         actions = torch.from_numpy(np.vstack([e.action for e in self.memory if e is not None])).float().to(self.device)
         rewards = torch.from_numpy(np.vstack([e.reward for e in self.memory if e is not None])).float().to(self.device)
