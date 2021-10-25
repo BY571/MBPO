@@ -137,12 +137,12 @@ class DynamicsModel(nn.Module):
     def __init__(self, state_size, action_size, ensemble_size=7, hidden_size=200, lr=1e-2, device="cpu"):
         super(DynamicsModel, self).__init__()
         self.ensemble_size = ensemble_size
+        self.output_size = state_size + 1
         self.fc1 = Ensemble_FC_Layer(state_size + action_size, hidden_size, ensemble_size)
         self.fc2 = Ensemble_FC_Layer(hidden_size, hidden_size, ensemble_size)
         self.fc3 = Ensemble_FC_Layer(hidden_size, hidden_size, ensemble_size)
         self.fc4 = Ensemble_FC_Layer(hidden_size, hidden_size, ensemble_size)
-        self.mu = Ensemble_FC_Layer(hidden_size, state_size + 1, ensemble_size)
-        self.log_var = Ensemble_FC_Layer(hidden_size, state_size + 1, ensemble_size)
+        self.output_layer = Ensemble_FC_Layer(hidden_size, self.output_size*2, ensemble_size)
         
         self.activation = nn.SiLU()
 
@@ -162,9 +162,10 @@ class DynamicsModel(nn.Module):
         x = self.fc4(x)
         x = self.activation(x)
         
-        mu = self.mu(x)
-
-        log_var = self.max_logvar - F.softplus(self.max_logvar - self.log_var(x))
+        output = self.output_layer(x)
+        mu = output[:, :, :self.output_size]
+        log_var = output[:, :, self.output_size:]
+        log_var = self.max_logvar - F.softplus(self.max_logvar - log_var)
         log_var = self.min_logvar + F.softplus(log_var - self.min_logvar)
 
         if return_log_var:

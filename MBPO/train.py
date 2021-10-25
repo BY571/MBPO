@@ -17,7 +17,7 @@ from tqdm import tqdm
 
 def get_config():
     parser = argparse.ArgumentParser(   )
-    parser.add_argument("--run_name", type=str, default="MBPO-SAC", help="Run name, default: MBPO-SAC")
+    parser.add_argument("--run_name", type=str, default="MBPO-combined-mu-var-layer", help="Run name, default: MBPO-SAC")
     parser.add_argument("--env", type=str, default="Pendulum-v0", help="Gym environment name, default: Pendulum-v0")
     parser.add_argument("--episodes", type=int, default=100, help="Number of episodes, default: 100")
     parser.add_argument("--episode_length", type=int, default=1000, help="Length of one episode, default: 1000")
@@ -88,7 +88,7 @@ def train(config):
     steps = 0
     average10 = deque(maxlen=10)
     kstep = 1    
-    with wandb.init(project="MBPO", name=config.run_name, config=config):
+    with wandb.init(project="MBPO-tests", name=config.run_name, config=config):
         
         agent = SAC(state_size=state_size,
                     action_size=action_size,
