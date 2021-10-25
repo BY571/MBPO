@@ -152,7 +152,6 @@ class DynamicsModel(nn.Module):
         self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         
     def forward(self, x, return_log_var=False):
-        x = x[None, :, :].repeat(self.ensemble_size, 1, 1)
         x = self.fc1(x)
         x = self.activation(x)
         x = self.fc2(x)

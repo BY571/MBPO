@@ -69,6 +69,8 @@ class MBEnsemble():
         num_validation = int(inputs.shape[0] * validation_percentage)
         train_inputs, train_labels = inputs[num_validation:], labels[num_validation:]
         holdout_inputs, holdout_labels = inputs[:num_validation], labels[:num_validation]
+        holdout_inputs = holdout_inputs[None, :, :].repeat(self.ensemble_size, 1, 1)
+        holdout_labels = holdout_labels[None, :, :].repeat(self.ensemble_size, 1, 1)
         num_training_samples = train_inputs.shape[0]
         while True:
             train_idx = np.vstack([np.random.permutation(num_training_samples) for _ in range(self.n_ensembles)])
