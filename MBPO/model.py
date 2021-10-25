@@ -2,6 +2,7 @@ from networks import DynamicsModel
 import torch
 import random
 import numpy as np
+from utils import TorchStandardScaler
 
 
 def termination_fn(env_name, obs, act, next_obs, rewards):
@@ -60,17 +61,25 @@ class MBEnsemble():
         self.improvement_threshold = 0.01
         self.break_counter = 0
         self.env_name = config.env
+        self.scaler = TorchStandardScaler()
         
     def train(self, inputs, labels, batch_size=256, validation_percentage=0.2):
         losses = 0
         epochs_trained = 0
         self.break_counter = 0
         break_training = False
+        
         num_validation = int(inputs.shape[0] * validation_percentage)
         train_inputs, train_labels = inputs[num_validation:], labels[num_validation:]
         holdout_inputs, holdout_labels = inputs[:num_validation], labels[:num_validation]
-        holdout_inputs = holdout_inputs[None, :, :].repeat(self.ensemble_size, 1, 1)
-        holdout_labels = holdout_labels[None, :, :].repeat(self.ensemble_size, 1, 1)
+        
+        self.scaler.fit(train_inputs)
+        train_inputs = self.scaler.transform(train_inputs)
+        holdout_inputs = self.scaler.transform(holdout_inputs)
+        
+        holdout_inputs = holdout_inputs[None, :, :].repeat(self.n_ensembles, 1, 1)
+        holdout_labels = holdout_labels[None, :, :].repeat(self.n_ensembles, 1, 1)
+        
         num_training_samples = train_inputs.shape[0]
         while True:
             train_idx = np.vstack([np.random.permutation(num_training_samples) for _ in range(self.n_ensembles)])
@@ -78,9 +87,9 @@ class MBEnsemble():
             self.dynamics_model.train()
             for start_pos in range(0, num_training_samples, batch_size):
                 idx = train_idx[:, start_pos: start_pos + batch_size]
-                train_inputs = train_inputs[idx]
-                train_labels = train_labels[idx]
-                loss = self.dynamics_model.calc_loss(train_inputs, train_labels)
+                train_input = train_inputs[idx]
+                train_label = train_labels[idx]
+                loss = self.dynamics_model.calc_loss(train_input, train_label)
                 self.dynamics_model.optimize(loss)
                 epochs_trained += 1
                 
@@ -119,11 +128,11 @@ class MBEnsemble():
             return False
             
 
-    def run_ensemble_prediction(self, scaler, states, actions):
+    def run_ensemble_prediction(self, states, actions):
         with torch.no_grad():
             inputs = torch.cat((torch.from_numpy(states).float().to(self.device),
                                 torch.from_numpy(actions).float().to(self.device)), dim=-1)
-            inputs = scaler.transform(inputs)
+            inputs = self.scaler.transform(inputs)
             mus, var = self.dynamics_model(inputs, return_log_var=False)
 
         # [ensembles, batch, prediction_shape]
@@ -132,14 +141,14 @@ class MBEnsemble():
         return mus.cpu().numpy(), var.cpu().numpy()
 
 
-    def do_rollouts(self, scaler, buffer, env_buffer, policy, kstep):
+    def do_rollouts(self, buffer, env_buffer, policy, kstep):
         
         states, _, _, _, _ = env_buffer.sample(self.n_rollouts)
         states = states.cpu().numpy()
         steps_added = []
         for k in range(kstep):
             actions = policy.get_action(states)
-            ensemble_means, ensemble_var = self.run_ensemble_prediction(scaler, states, actions)
+            ensemble_means, ensemble_var = self.run_ensemble_prediction(states, actions)
             
             ensemble_std = np.sqrt(ensemble_var)
             if self.probabilistic:
