@@ -77,6 +77,8 @@ class MBEnsemble():
         train_inputs = self.scaler.transform(train_inputs)
         holdout_inputs = self.scaler.transform(holdout_inputs)
         
+        holdout_inputs = torch.from_numpy(holdout_inputs).float().to(self.device)
+        holdout_labels = torch.from_numpy(holdout_labels).float().to(self.device)
         holdout_inputs = holdout_inputs[None, :, :].repeat(self.n_ensembles, 1, 1)
         holdout_labels = holdout_labels[None, :, :].repeat(self.n_ensembles, 1, 1)
         
@@ -89,6 +91,8 @@ class MBEnsemble():
                 idx = train_idx[:, start_pos: start_pos + batch_size]
                 train_input = train_inputs[idx]
                 train_label = train_labels[idx]
+                train_input = torch.from_numpy(train_input).float().to(self.device)
+                train_label = torch.from_numpy(train_label).float().to(self.device)
                 loss = self.dynamics_model.calc_loss(train_input, train_label)
                 self.dynamics_model.optimize(loss)
                 epochs_trained += 1
