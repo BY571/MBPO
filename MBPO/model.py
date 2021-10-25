@@ -139,9 +139,7 @@ class MBEnsemble():
             
             ensemble_std = np.sqrt(ensemble_var)
             if self.probabilistic:
-                #all_ensemble_predictions = ensemble_means + np.random.normal(size=ensemble_means.shape) * ensemble_std
-                dist = Normal(ensemble_means, ensemble_std)
-                all_ensemble_predictions = dist.sample()
+                all_ensemble_predictions = np.random.normal(ensemble_means, ensemble_std)
             else:
                 all_ensemble_predictions = ensemble_means
             all_ensemble_predictions[:, :, :-1] += states
