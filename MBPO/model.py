@@ -2,6 +2,7 @@ from networks import DynamicsModel
 import torch
 import random
 import numpy as np
+from torch.distributions import Normal
 
 
 def termination_fn(env_name, obs, act, next_obs, rewards):
@@ -135,12 +136,15 @@ class MBEnsemble():
         for k in range(kstep):
             actions = policy.get_action(states)
             ensemble_means, ensemble_var = self.run_ensemble_prediction(scaler, states, actions)
-            ensemble_means[:, :, :-1] += states
+            
             ensemble_std = np.sqrt(ensemble_var)
             if self.probabilistic:
-                all_ensemble_predictions = ensemble_means + np.random.normal(size=ensemble_means.shape) * ensemble_std
+                #all_ensemble_predictions = ensemble_means + np.random.normal(size=ensemble_means.shape) * ensemble_std
+                dist = Normal(ensemble_means, ensemble_std)
+                all_ensemble_predictions = dist.sample()
             else:
                 all_ensemble_predictions = ensemble_means
+            all_ensemble_predictions[:, :, :-1] += states
             steps_added.append(len(states))
             if self.rollout_select == "random":
                 # choose what predictions we select from what ensemble member
