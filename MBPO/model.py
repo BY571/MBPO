@@ -134,9 +134,9 @@ class MBEnsemble():
 
     def run_ensemble_prediction(self, states, actions):
         with torch.no_grad():
-            inputs = torch.cat((torch.from_numpy(states).float().to(self.device),
-                                torch.from_numpy(actions).float().to(self.device)), dim=-1)
+            inputs = np.concatenate((states, actions), axis=-1)
             inputs = self.scaler.transform(inputs)
+            inputs = torch.from_numpy(inputs).float().to(self.device)
             mus, var = self.dynamics_model(inputs, return_log_var=False)
 
         # [ensembles, batch, prediction_shape]

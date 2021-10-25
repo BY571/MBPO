@@ -174,7 +174,7 @@ class DynamicsModel(nn.Module):
     
     def calc_loss(self, inputs, targets, include_var=True):
         mu, log_var = self(inputs, return_log_var=True)
-        assert mu.shape[1:] == targets.shape
+        #assert mu.shape[1:] == targets.shape
         if include_var:
             inv_var = (-log_var).exp()
             loss = ((mu - targets)**2 * inv_var).mean(-1).mean(-1).sum() + log_var.mean(-1).mean(-1).sum()
