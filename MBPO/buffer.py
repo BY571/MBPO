@@ -95,16 +95,7 @@ class MBReplayBuffer:
         scaler.fit(inputs)
         inputs = scaler.transform(inputs)
         
-        dataset = TensorDataset(inputs, labels)
-        test_size = int(len(dataset) * data_split)
-        train_size = len(dataset) - test_size
-        
-        train_data, test_data = torch.utils.data.random_split(dataset, [train_size, test_size])
-        
-        train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-        test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=True)
-
-        return train_loader, test_loader
+        return inputs, labels
     
     def return_all(self,):
         return self.memory

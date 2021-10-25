@@ -2,7 +2,6 @@ from networks import DynamicsModel
 import torch
 import random
 import numpy as np
-from torch.distributions import Normal
 
 
 def termination_fn(env_name, obs, act, next_obs, rewards):
@@ -62,34 +61,37 @@ class MBEnsemble():
         self.break_counter = 0
         self.env_name = config.env
         
-    def train(self, train_loader, test_loader):
+    def train(self, inputs, labels, batch_size=256, validation_percentage=0.2):
         losses = 0
         epochs_trained = 0
         self.break_counter = 0
         break_training = False
+        num_validation = int(inputs.shape[0] * validation_percentage)
+        train_inputs, train_labels = inputs[num_validation:], labels[num_validation:]
+        holdout_inputs, holdout_labels = inputs[:num_validation], labels[:num_validation]
+        num_training_samples = train_inputs.shape[0]
         while True:
+            train_idx = np.vstack([np.random.permutation(num_training_samples) for _ in range(self.n_ensembles)])
+            
             self.dynamics_model.train()
-            for (x, y) in train_loader:
-
-                loss = self.dynamics_model.calc_loss(x, y)
+            for start_pos in range(0, num_training_samples, batch_size):
+                idx = train_idx[:, start_pos: start_pos + batch_size]
+                train_inputs = train_inputs[idx]
+                train_labels = train_labels[idx]
+                loss = self.dynamics_model.calc_loss(train_inputs, train_labels)
                 self.dynamics_model.optimize(loss)
                 epochs_trained += 1
                 
             # evaluation
             self.dynamics_model.eval()
             with torch.no_grad():
-                for (val_x, val_y) in test_loader:
-
-                    val_losses = self.dynamics_model.calc_loss(val_x, val_y, include_var=False)
-                    val_losses = val_losses.detach().cpu().numpy()
-                    sorted_loss_idx = np.argsort(losses)
-                    self.elite_idxs = sorted_loss_idx[:self.elite_size].tolist()
-                    break_training = self.test_break_condition(val_losses)
-                    if break_training:
-                        break
-            if break_training:
-                break
-
+                val_losses = self.dynamics_model.calc_loss(holdout_inputs, holdout_labels, include_var=False)
+                val_losses = val_losses.detach().cpu().numpy()
+                sorted_loss_idx = np.argsort(losses)
+                self.elite_idxs = sorted_loss_idx[:self.elite_size].tolist()
+                break_training = self.test_break_condition(val_losses)
+                if break_training:
+                    break
             
         assert len(val_losses) == self.n_ensembles, f"epoch_losses: {len(val_losses)} =/= {self.n_ensembles}"
         

@@ -122,8 +122,8 @@ def train(config):
             while episode_steps < config.episode_length:
 
                 if steps % config.update_frequency == 0:
-                    train_loader, test_loader = mb_buffer.get_dataloader(scaler=scaler, batch_size=config.model_based_batch_size)
-                    losses, trained_epochs = ensemble.train(train_loader, test_loader)
+                    train_inputs, train_labels = mb_buffer.get_dataloader(scaler=scaler, batch_size=config.model_based_batch_size)
+                    losses, trained_epochs = ensemble.train(train_inputs, train_labels)
                     wandb.log({"Episode": i, "MB mean loss": np.mean(losses), "MB mean trained epochs": trained_epochs}, step=steps)
                     tqdm.write("\nEpisode: {} | Ensemble losses: {}".format(i, losses))
                     new_kstep = get_kstep(e=i, kstep_start=config.kstep_start,
