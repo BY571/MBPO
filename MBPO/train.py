@@ -27,6 +27,7 @@ def get_config():
     parser.add_argument("--save_every", type=int, default=5, help="Saves the network every x epochs, default: 5")
     parser.add_argument("--batch_size", type=int, default=256, help="Batch size, default: 256")
     parser.add_argument("--npolicy_updates", type=int, default=20, help="")
+    parser.add_argument("--max_train_repeat_per_timestep", type=int, default=5, help="")
     parser.add_argument("--parallel_envs", type=int, default=1, help="")
     
     # SAC params
@@ -86,6 +87,7 @@ def train(config):
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     
     steps = 0
+    total_policy_updates = 0
     average10 = deque(maxlen=10)
     kstep = 1    
     with wandb.init(project="MBPO-tests", name=config.run_name, config=config):
@@ -99,8 +101,6 @@ def train(config):
                               action_size=action_size,
                               config=config,
                               device=device)
-        
-        scaler = TorchStandardScaler()
         
         wandb.watch(agent, log="gradients", log_freq=10)
 
@@ -118,14 +118,13 @@ def train(config):
         for i in tqdm(range(1, config.episodes+1)):
             state = envs.reset()
             episode_steps = 0
-            epistemic_uncertainty_ = []
+            episode_trainigs = 0
             while episode_steps < config.episode_length:
 
-                if steps % config.update_frequency == 0:
+                if steps > 0 and steps % config.update_frequency == 0:
                     train_inputs, train_labels = mb_buffer.get_dataloader(batch_size=config.model_based_batch_size)
                     losses, trained_epochs = ensemble.train(train_inputs, train_labels)
-                    wandb.log({"Episode": i, "MB mean loss": np.mean(losses), "MB mean trained epochs": trained_epochs}, step=steps)
-                    tqdm.write("\nEpisode: {} | Ensemble losses: {}".format(i, losses))
+
                     new_kstep = get_kstep(e=i, kstep_start=config.kstep_start,
                                     kstep_end=config.kstep_end,
                                     epis_start=config.epis_start,
@@ -138,22 +137,39 @@ def train(config):
                                                                                       env_buffer=mb_buffer,
                                                                                       policy=agent,
                                                                                       kstep=kstep)
-                    epistemic_uncertainty_.append(epistemic_uncertainty)           
-
+                    tqdm.write("\nEpisode: {} | Ensemble losses: {}".format(i, losses))
+                    wandb.log({"Episode": i,
+                               "MB mean loss": np.mean(losses),
+                               "MB mean trained epochs": trained_epochs,
+                               "Epistemic Uncertainty": epistemic_uncertainty,
+                               "Mean rollout length": mean_rollout_length,
+                               "Kstep": kstep,}, step=steps)
+                           
+                # Interact with the real environment
                 action = agent.get_action(state)
                 next_state, reward, done, _ = envs.step(action)
                 mb_buffer.add(state, action, reward, next_state, done)
-
-                for _ in range(config.npolicy_updates * config.parallel_envs):
-                    policy_loss, alpha_loss, bellmann_error1, bellmann_error2, current_alpha = agent.learn(buffer,
-                                                                                                           mb_buffer,
-                                                                                                           config.real_data_ratio)
                 state = next_state
+                
+                # Train Policy 
+                if episode_trainigs < config.max_train_repeat_per_timestep * steps:
+                    for _ in range(config.npolicy_updates * config.parallel_envs):
+                        policy_loss, alpha_loss, bellmann_error1, bellmann_error2, current_alpha = agent.learn(buffer,
+                                                                                                            mb_buffer,
+                                                                                                            config.real_data_ratio)
+                        episode_trainigs += config.npolicy_updates * config.parallel_envs
+                    wandb.log({"Policy Loss": policy_loss,
+                               "Alpha Loss": alpha_loss,
+                               "Bellman error 1": bellmann_error1,
+                               "Bellman error 2": bellmann_error2,
+                               "Alpha": current_alpha}, step=steps)
+                    
                 episode_steps += config.parallel_envs
                 steps += config.parallel_envs
                 if done.any():
                     state = envs.reset()
-
+                    
+            total_policy_updates += episode_trainigs
             # do evaluation runs 
             rewards = evaluate(evaluation_env, agent)
             
@@ -162,15 +178,8 @@ def train(config):
             
             wandb.log({"Reward": rewards,
                        "Average10": np.mean(average10),
-                       "Policy Loss": policy_loss,
-                       "Alpha Loss": alpha_loss,
-                       "Bellman error 1": bellmann_error1,
-                       "Bellman error 2": bellmann_error2,
-                       "Alpha": current_alpha,
-                       "Epistemic uncertainty": np.mean(epistemic_uncertainty_),
-                       "Mean rollout length": mean_rollout_length,
+                       "Total Policy Updates": total_policy_updates,
                        "Steps": steps,
-                       "Kstep": kstep,
                        "Episode": i,
                        "Buffer size": buffer.__len__(),
                        "Env Buffer size": mb_buffer.__len__()})
