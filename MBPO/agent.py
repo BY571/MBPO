@@ -30,7 +30,7 @@ class SAC(nn.Module):
 
         self.device = device
         
-        self.gamma = config.gamma
+        self.gamma = torch.FloatTensor([config.gamma]).to(device)
         self.tau = config.tau
         hidden_size = config.sac_hidden_size
         learning_rate = config.sac_lr
@@ -78,10 +78,10 @@ class SAC(nn.Module):
     def calc_policy_loss(self, states, alpha):
         actions_pred, log_pis = self.actor_local.evaluate(states)
 
-        q1 = self.critic1(states, actions_pred.squeeze(0))   
-        q2 = self.critic2(states, actions_pred.squeeze(0))
-        min_Q = torch.min(q1,q2).cpu()
-        actor_loss = ((alpha * log_pis.cpu() - min_Q )).mean()
+        q1 = self.critic1(states, actions_pred)   
+        q2 = self.critic2(states, actions_pred)
+        min_Q = torch.min(q1,q2)
+        actor_loss = ((alpha * log_pis - min_Q )).mean()
         return actor_loss, log_pis
     
     def learn(self, fake_buffer, real_buffer, ratio):
@@ -113,13 +113,13 @@ class SAC(nn.Module):
         dones = torch.cat((real_dones, fake_dones))
         # ---------------------------- update actor ---------------------------- #
         current_alpha = copy.deepcopy(self.alpha)
-        actor_loss, log_pis = self.calc_policy_loss(states, current_alpha)
+        actor_loss, log_pis = self.calc_policy_loss(states, current_alpha.to(self.device))
         self.actor_optimizer.zero_grad()
         actor_loss.backward()
         self.actor_optimizer.step()
         
         # Compute alpha loss
-        alpha_loss = - (self.log_alpha.exp() * (log_pis.cpu() + self.target_entropy).detach().cpu()).mean()
+        alpha_loss = - (self.log_alpha.exp() * (log_pis + self.target_entropy).detach().cpu()).mean()
         self.alpha_optimizer.zero_grad()
         alpha_loss.backward()
         self.alpha_optimizer.step()
@@ -131,21 +131,21 @@ class SAC(nn.Module):
             next_action, log_pis_next = self.actor_local.evaluate(next_states)
             Q_target1_next = self.critic1_target(next_states, next_action)
             Q_target2_next = self.critic2_target(next_states, next_action)
-            Q_target_next = torch.min(Q_target1_next, Q_target2_next) - self.alpha.to(self.device) * log_pis_next.squeeze(0)
+            Q_target_next = torch.min(Q_target1_next, Q_target2_next) - self.alpha.to(self.device) * log_pis_next
             # Compute Q targets for current states (y_i)
-            Q_targets = rewards.cpu() + (self.gamma * (1 - dones.cpu()) * Q_target_next.cpu()) 
+            Q_targets = rewards + (self.gamma * (1 - dones) * Q_target_next) 
 
         # Compute critic loss
         q1 = self.critic1(states, actions)
         q2 = self.critic2(states, actions)
             
-        critic1_loss = 0.5 * F.mse_loss(q1.cpu(), Q_targets)
-        critic2_loss = 0.5 * F.mse_loss(q2.cpu(), Q_targets)
+        critic1_loss = 0.5 * F.mse_loss(q1, Q_targets)
+        critic2_loss = 0.5 * F.mse_loss(q2, Q_targets)
 
         # Update critics
         # critic 1
         self.critic1_optimizer.zero_grad()
-        critic1_loss.backward(retain_graph=True)
+        critic1_loss.backward()
         clip_grad_norm_(self.critic1.parameters(), self.clip_grad_param)
         self.critic1_optimizer.step()
         # critic 2
