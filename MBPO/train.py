@@ -41,6 +41,7 @@ def get_config():
     parser.add_argument("--model_based_batch_size", type=int, default=256, help="")
     parser.add_argument("--n_rollouts", type=int, default=100_000, help="")
     parser.add_argument("--ensembles", type=int, default=7, help="")
+    parser.add_argument("--probabilistic", type=int, default=1, help="")
     parser.add_argument("--elite_size", type=int, default=5, help="")
     parser.add_argument("--hidden_size", type=int, default=200, help="")
     parser.add_argument("--mb_lr", type=float, default=1e-3, help="")
@@ -121,7 +122,7 @@ def train(config):
             episode_trainigs = 0
             while episode_steps < config.episode_length:
 
-                if steps > 0 and steps % config.update_frequency == 0:
+                if steps % config.update_frequency == 0:
                     train_inputs, train_labels = mb_buffer.get_dataloader(batch_size=config.model_based_batch_size)
                     losses, trained_epochs = ensemble.train(train_inputs, train_labels)
 
@@ -137,6 +138,7 @@ def train(config):
                                                                                       env_buffer=mb_buffer,
                                                                                       policy=agent,
                                                                                       kstep=kstep)
+
                     tqdm.write("\nEpisode: {} | Ensemble losses: {}".format(i, losses))
                     wandb.log({"Episode": i,
                                "MB mean loss": np.mean(losses),
@@ -158,11 +160,7 @@ def train(config):
                                                                                                             mb_buffer,
                                                                                                             config.real_data_ratio)
                         episode_trainigs += config.npolicy_updates * config.parallel_envs
-                    wandb.log({"Policy Loss": policy_loss,
-                               "Alpha Loss": alpha_loss,
-                               "Bellman error 1": bellmann_error1,
-                               "Bellman error 2": bellmann_error2,
-                               "Alpha": current_alpha}, step=steps)
+                    wandb.log({}, step=steps)
                     
                 episode_steps += config.parallel_envs
                 steps += config.parallel_envs
@@ -179,6 +177,11 @@ def train(config):
             wandb.log({"Reward": rewards,
                        "Average10": np.mean(average10),
                        "Total Policy Updates": total_policy_updates,
+                       "Policy Loss": policy_loss,
+                       "Alpha Loss": alpha_loss,
+                       "Bellman error 1": bellmann_error1,
+                       "Bellman error 2": bellmann_error2,
+                       "Alpha": current_alpha,
                        "Steps": steps,
                        "Episode": i,
                        "Buffer size": buffer.__len__(),

@@ -41,7 +41,7 @@ class MBEnsemble():
                 
         self.device = device
 
-        self.probabilistic = True
+        self.probabilistic = config.probabilistic
         self.n_ensembles = config.ensembles
 
         self.dynamics_model = DynamicsModel(state_size=state_size,
