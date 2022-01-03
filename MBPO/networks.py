@@ -103,6 +103,21 @@ class Critic(nn.Module):
         x = F.relu(self.fc2(x))
         return self.fc3(x)
     
+def init_weights(m):
+    def truncated_normal_init(t, mean=0.0, std=0.01):
+        torch.nn.init.normal_(t, mean=mean, std=std)
+        while True:
+            cond = torch.logical_or(t < mean - 2 * std, t > mean + 2 * std)
+            if not torch.sum(cond):
+                break
+            t = torch.where(cond, torch.nn.init.normal_(torch.ones(t.shape), mean=mean, std=std), t)
+        return t
+
+    if type(m) == nn.Linear or isinstance(m, Ensemble_FC_Layer):
+        input_dim = m.in_features
+        truncated_normal_init(m.weight, std=1 / (2 * np.sqrt(input_dim)))
+        m.bias.data.fill_(0.0)
+
 
 class Ensemble_FC_Layer(nn.Module):
     def __init__(self, in_features, out_features, ensemble_size, bias=True):
@@ -143,6 +158,7 @@ class DynamicsModel(nn.Module):
         self.fc3 = Ensemble_FC_Layer(hidden_size, hidden_size, ensemble_size)
         self.fc4 = Ensemble_FC_Layer(hidden_size, hidden_size, ensemble_size)
         self.output_layer = Ensemble_FC_Layer(hidden_size, self.output_size*2, ensemble_size)
+        self.apply(init_weights)
         
         self.activation = nn.SiLU()
 
@@ -174,14 +190,12 @@ class DynamicsModel(nn.Module):
     
     def calc_loss(self, inputs, targets, include_var=True):
         mu, log_var = self(inputs, return_log_var=True)
-        #assert mu.shape[1:] == targets.shape
         if include_var:
             inv_var = (-log_var).exp()
             loss = ((mu - targets)**2 * inv_var).mean(-1).mean(-1).sum() + log_var.mean(-1).mean(-1).sum()
             return loss
         else:
-            return ((mu - targets)**2).mean(-1).mean(-1)
-            
+            return ((mu - targets)**2).mean(-1).mean(-1)      
 
     def optimize(self, loss):
         self.optimizer.zero_grad()

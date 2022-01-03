@@ -37,7 +37,6 @@ def evaluate(env, policy, eval_runs=5):
         rewards = 0
         while True:
             action = policy.get_action(state, eval=True)
-
             state, reward, done, _ = env.step(action)
             rewards += reward
             if done:
@@ -54,6 +53,8 @@ class TorchStandardScaler:
     x -= self.mu
     x /= self.std
     return x
+  def inverse_transform(self, x):
+    return self.std * x + self.mu
 
 class SingleEnvWrapper(gym.Wrapper):
     def __init__(self, env):

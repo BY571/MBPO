@@ -6,7 +6,7 @@ from utils import TorchStandardScaler
 
 
 def termination_fn(env_name, obs, act, next_obs, rewards):
-    if env_name == "HopperBulletEnv-v":
+    if env_name == "Hopper-v2":
         assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
 
         height = next_obs[:, 0]
@@ -95,7 +95,7 @@ class MBEnsemble():
                 train_label = torch.from_numpy(train_label).float().to(self.device)
                 loss = self.dynamics_model.calc_loss(train_input, train_label)
                 self.dynamics_model.optimize(loss)
-                epochs_trained += 1
+            epochs_trained += 1
                 
             # evaluation
             self.dynamics_model.eval()
@@ -130,19 +130,25 @@ class MBEnsemble():
             return True
         else:
             return False
-            
 
-    def run_ensemble_prediction(self, states, actions):
+    def run_ensemble_prediction(self, states, actions, batch_size=1024):
+        inputs = np.concatenate((states, actions), axis=-1)
+        inputs = self.scaler.transform(inputs)
+        ensemble_mean, ensemble_var = [], []
         with torch.no_grad():
-            inputs = np.concatenate((states, actions), axis=-1)
-            inputs = self.scaler.transform(inputs)
-            inputs = torch.from_numpy(inputs).float().to(self.device)[None, :, :].repeat(self.n_ensembles, 1, 1)
-            mus, var = self.dynamics_model(inputs, return_log_var=False)
+            for i in range(0, inputs.shape[0], batch_size):
+                input = torch.from_numpy(inputs[i:min(i + batch_size, inputs.shape[0])]).float().to(self.device)
+                input = input[None, :, :].repeat([self.n_ensembles, 1, 1])
+                mus, var = self.dynamics_model(input, return_log_var=False)
+                ensemble_mean.append(mus.detach().cpu().numpy())
+                ensemble_var.append(var.detach().cpu().numpy())
+        ensemble_mean = np.hstack(ensemble_mean)
+        ensemble_var = np.hstack(ensemble_var)
 
         # [ensembles, batch, prediction_shape]
-        assert mus.shape == (self.n_ensembles, states.shape[0], states.shape[1] + 1)
-        assert var.shape == (self.n_ensembles, states.shape[0], states.shape[1] + 1)
-        return mus.cpu().numpy(), var.cpu().numpy()
+        assert ensemble_mean.shape == (self.n_ensembles, states.shape[0], states.shape[1] + 1)
+        assert ensemble_var.shape == (self.n_ensembles, states.shape[0], states.shape[1] + 1)
+        return ensemble_mean, ensemble_var
 
 
     def do_rollouts(self, buffer, env_buffer, policy, kstep):
