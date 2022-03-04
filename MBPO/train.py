@@ -10,14 +10,14 @@ import glob
 from utils import save, collect_random
 import random
 from agent import SAC
-from model import MBEnsemble
-from utils import evaluate, TorchStandardScaler
+from model import DynamicsModel
+from utils import evaluate
 import multipro
 from tqdm import tqdm
 
 def get_config():
     parser = argparse.ArgumentParser(   )
-    parser.add_argument("--run_name", type=str, default="MBPO-combined-mu-var-layer", help="Run name, default: MBPO-SAC")
+    parser.add_argument("--run_name", type=str, default="test_run", help="Run name, default: MBPO-SAC")
     parser.add_argument("--env", type=str, default="Hopper-v2", help="Gym environment name, default: Pendulum-v0")
     parser.add_argument("--episodes", type=int, default=100, help="Number of episodes, default: 100")
     parser.add_argument("--episode_length", type=int, default=1000, help="Length of one episode, default: 1000")
@@ -25,7 +25,7 @@ def get_config():
     parser.add_argument("--seed", type=int, default=3, help="Seed, default: 1")
     parser.add_argument("--log_video", type=int, default=0, help="Log agent behaviour to wanbd when set to 1, default: 0")
     parser.add_argument("--save_every", type=int, default=5, help="Saves the network every x epochs, default: 5")
-    parser.add_argument("--batch_size", type=int, default=256, help="Batch size, default: 256")
+    parser.add_argument("--batch_size", type=int, default=512, help="Batch size, default: 256")
     parser.add_argument("--npolicy_updates", type=int, default=20, help="")
     parser.add_argument("--max_train_repeat_per_timestep", type=int, default=5, help="")
     parser.add_argument("--parallel_envs", type=int, default=1, help="")
@@ -35,16 +35,16 @@ def get_config():
     parser.add_argument("--tau", type=float, default=5e-3, help="")
     parser.add_argument("--sac_hidden_size", type=int, default=256, help="")
     parser.add_argument("--sac_lr", type=float, default=5e-4, help="")
+    parser.add_argument("--sac_batch_size", type=int, default=256, help="")
     parser.add_argument("--clip_grad", type=float, default=10, help="")
     parser.add_argument("--real_data_ratio", type=float, default=0.1, help="")
+    parser.add_argument("--policy_update_frequency", type=int, default=25)
+
     ## MB params
-    parser.add_argument("--model_based_batch_size", type=int, default=256, help="")
-    parser.add_argument("--n_rollouts", type=int, default=100_000, help="")
-    parser.add_argument("--ensembles", type=int, default=7, help="")
-    parser.add_argument("--probabilistic", type=int, default=1, help="")
-    parser.add_argument("--elite_size", type=int, default=5, help="")
-    parser.add_argument("--hidden_size", type=int, default=200, help="")
-    parser.add_argument("--mb_lr", type=float, default=1e-3, help="")
+    parser.add_argument("--n_trajectories", type=int, default=100_000, help="")
+    parser.add_argument("--num_epochs", type=int, default=60, help="")
+    parser.add_argument("--hidden_size", type=int, default=400, help="")
+    parser.add_argument("--learning_rate", type=float, default=1e-3, help="")
     parser.add_argument("--update_frequency", type=int, default=250, help="")
     parser.add_argument("--rollout_select", type=str, default="random", choices=["random", "mean"], help="Define how the rollouts are composed, randomly from a random selected member of the ensemble or as the mean over all ensembles, default: random")
     
@@ -61,7 +61,7 @@ def get_kstep(e, kstep_start, kstep_end, epis_start, epis_end):
     return int(min(max(kstep_start + (e-epis_start)/(epis_end-epis_start) * (kstep_end-kstep_start), kstep_start), kstep_end))
 
 def calc_mb_buffer_size(config, rollout_length):
-    rollouts_per_epoch = config.n_rollouts * config.episode_length / config.update_frequency
+    rollouts_per_epoch = config.n_trajectories * config.episode_length / config.update_frequency
     model_steps_per_epoch = int(rollout_length * rollouts_per_epoch)
     return model_steps_per_epoch
 
@@ -78,9 +78,9 @@ def train(config):
     np.random.seed(config.seed)
     random.seed(config.seed)
     torch.manual_seed(config.seed)
-    envs = multipro.SubprocVecEnv([lambda: gym.make(config.env) for i in range(config.parallel_envs)])
+    env = gym.make(config.env) #  multipro.SubprocVecEnv([lambda: gym.make(config.env) for i in range(config.parallel_envs)])
     evaluation_env = gym.make(config.env)
-    envs.seed(config.seed)
+    env.seed(config.seed)
     evaluation_env.seed(config.seed+1234)
     
     state_size = evaluation_env.observation_space.shape[0]
@@ -91,21 +91,26 @@ def train(config):
     total_policy_updates = 0
     average10 = deque(maxlen=10)
     kstep = 1    
-    with wandb.init(project="MBPO-tests", name=config.run_name, config=config):
+    with wandb.init(project="MBPO-Simple", name=config.run_name, config=config):
         
         agent = SAC(state_size=state_size,
                     action_size=action_size,
                     config=config,
                     device=device)
         
-        ensemble = MBEnsemble(state_size=state_size,
-                              action_size=action_size,
-                              config=config,
-                              device=device)
+        dynamics_model = DynamicsModel(state_size=state_size,
+                                        action_size=action_size,
+                                        env_name=config.env,
+                                        n_trajectories=config.n_trajectories,
+                                        num_epochs=config.num_epochs,
+                                        batch_size=config.batch_size,
+                                        hidden_size=config.hidden_size,
+                                        lr=config.learning_rate,
+                                        device=device)
         
         wandb.watch(agent, log="gradients", log_freq=10)
 
-        buffer = ReplayBuffer(buffer_size=config.buffer_size, batch_size=config.batch_size, device=device)
+        buffer = ReplayBuffer(buffer_size=config.buffer_size, batch_size=config.sac_batch_size, device=device)
         
         buffer_size = calc_mb_buffer_size(config, 1)
         mb_buffer = MBReplayBuffer(buffer_size=buffer_size,
@@ -116,16 +121,15 @@ def train(config):
             evaluation_env = gym.wrappers.Monitor(evaluation_env, './video', video_callable=lambda x: x%10==0, force=True)
 
         # do training
-        for i in tqdm(range(1, config.episodes+1)):
-            state = envs.reset()
+        for i in range(1, config.episodes+1):
+            state = env.reset()
             episode_steps = 0
             episode_trainigs = 0
             while episode_steps < config.episode_length:
 
                 if steps % config.update_frequency == 0:
-                    train_inputs, train_labels = mb_buffer.get_dataloader(batch_size=config.model_based_batch_size)
-                    losses, trained_epochs = ensemble.train(train_inputs, train_labels)
-
+                    loss = dynamics_model.fit(mb_buffer)
+                    
                     new_kstep = get_kstep(e=i, kstep_start=config.kstep_start,
                                     kstep_end=config.kstep_end,
                                     epis_start=config.epis_start,
@@ -133,41 +137,41 @@ def train(config):
 
                     if kstep != new_kstep:
                         kstep = new_kstep
-                    mb_buffer = resize_buffer(config, kstep, mb_buffer, device)
-                    epistemic_uncertainty, mean_rollout_length = ensemble.do_rollouts(buffer=buffer,
-                                                                                      env_buffer=mb_buffer,
-                                                                                      policy=agent,
-                                                                                      kstep=kstep)
 
-                    tqdm.write("\nEpisode: {} | Ensemble losses: {}".format(i, losses))
+                    mb_buffer = resize_buffer(config, kstep, mb_buffer, device)
+                    print("Doing rollouts!")
+                    mean_rollout_length = dynamics_model.rollout_prediction(agent_buffer=buffer,
+                                                                            dynamics_buffer=mb_buffer,
+                                                                            policy=agent, rollout_horizon=kstep)
+
                     wandb.log({"Episode": i,
-                               "MB mean loss": np.mean(losses),
-                               "MB mean trained epochs": trained_epochs,
-                               "Epistemic Uncertainty": epistemic_uncertainty,
+                               "MB loss": loss,
                                "Mean rollout length": mean_rollout_length,
                                "Kstep": kstep,}, step=steps)
                            
                 # Interact with the real environment
                 action = agent.get_action(state)
-                next_state, reward, done, _ = envs.step(action)
+                next_state, reward, done, _ = env.step(action)
                 mb_buffer.add(state, action, reward, next_state, done)
                 state = next_state
                 
                 # Train Policy 
-                if episode_trainigs < config.max_train_repeat_per_timestep * steps:
-                    for _ in range(config.npolicy_updates * config.parallel_envs):
+                #if episode_trainigs < config.max_train_repeat_per_timestep * steps:
+                if steps % config.policy_update_frequency == 0:
+                    print("Train Policy!")
+                    for _ in range(config.npolicy_updates):
                         policy_loss, alpha_loss, bellmann_error1, bellmann_error2, current_alpha = agent.learn(buffer,
                                                                                                             mb_buffer,
                                                                                                             config.real_data_ratio)
-                        episode_trainigs += config.npolicy_updates * config.parallel_envs
-                    wandb.log({}, step=steps)
+                        episode_trainigs += config.npolicy_updates 
                     
                 episode_steps += config.parallel_envs
                 steps += config.parallel_envs
-                if done.any():
-                    state = envs.reset()
+                if done:
+                    state = env.reset()
                     
             total_policy_updates += episode_trainigs
+
             # do evaluation runs 
             rewards = evaluate(evaluation_env, agent)
             

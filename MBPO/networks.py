@@ -119,6 +119,42 @@ def init_weights(m):
         m.bias.data.fill_(0.0)
 
 
+class SimpleDynamics(nn.Module):
+    def __init__(self, state_size, action_size, hidden_size=200, lr=1e-2, device="cpu"):
+        super(SimpleDynamics, self).__init__()
+        self.state_size = state_size
+        self.action_size = action_size
+        
+        self.model = nn.Sequential(nn.Linear(state_size + action_size, hidden_size),
+                                   nn.ReLU(),
+                                   nn.Linear(hidden_size, hidden_size),
+                                   nn.ReLU(),
+                                   nn.Linear(hidden_size, state_size + 1)).to(device)
+        #self.apply(init_weights)
+        self.loss_f = nn.MSELoss()
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        
+        
+    def forward(self, x):
+        #assert x.device == self.model.device
+        x = self.model(x)
+        return x
+    
+    def calc_loss(self, x, target):
+        assert x.shape[1] == self.state_size + self.action_size
+        pred = self.forward(x)
+        assert pred.shape == target.shape
+        loss = self.loss_f(pred, target)
+        return loss
+    
+    def optimize(self, x, target):
+        self.optimizer.zero_grad()
+        loss = self.calc_loss(x, target)
+        loss.backward()
+        self.optimizer.step()
+        return loss.item()
+    
+
 class Ensemble_FC_Layer(nn.Module):
     def __init__(self, in_features, out_features, ensemble_size, bias=True):
         super(Ensemble_FC_Layer, self).__init__()

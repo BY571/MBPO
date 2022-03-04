@@ -2,7 +2,6 @@ import numpy as np
 import random
 import torch
 from collections import deque, namedtuple
-from torch.utils.data import TensorDataset, DataLoader
 from operator import itemgetter
 
 class ReplayBuffer:
@@ -65,37 +64,29 @@ class MBReplayBuffer:
     
     def add(self, state, action, reward, next_state, done):
         """Add a new experience to memory."""
-        for (s, a, r, ns, d) in zip(state, action, reward, next_state, done):
-            e = self.experience(s, a, r, ns, d)
-            self.memory.append(e)
+        e = self.experience(state, action, reward, next_state, done)
+        self.memory.append(e)
         
     def sample(self, samples=None):
         """Randomly sample a batch of experiences from memory."""
+
+        states = torch.from_numpy(np.stack([e.state for e in self.memory if e is not None])).float().to(self.device)
+        actions = torch.from_numpy(np.vstack([e.action for e in self.memory if e is not None])).float().to(self.device)
+        rewards = torch.from_numpy(np.vstack([e.reward for e in self.memory if e is not None])).float().to(self.device)
+        next_states = torch.from_numpy(np.stack([e.next_state for e in self.memory if e is not None])).float().to(self.device)
+        dones = torch.from_numpy(np.vstack([e.done for e in self.memory if e is not None]).astype(np.uint8)).float().to(self.device)
+
+        return (states, actions, rewards, next_states)
+
+    def sample_random_state(self, samples):
         idxes = np.random.randint(0, len(self.memory), samples)
         experiences = list(itemgetter(*idxes)(self.memory))
         states = torch.from_numpy(np.stack([e.state for e in experiences if e is not None])).float().to(self.device)
-        actions = torch.from_numpy(np.vstack([e.action for e in experiences if e is not None])).float().to(self.device)
-        rewards = torch.from_numpy(np.vstack([e.reward for e in experiences if e is not None])).float().to(self.device)
-        next_states = torch.from_numpy(np.stack([e.next_state for e in experiences if e is not None])).float().to(self.device)
-        dones = torch.from_numpy(np.vstack([e.done for e in experiences if e is not None]).astype(np.uint8)).float().to(self.device)
-
-        return (states, actions, rewards, next_states, dones)
-
-    def get_dataloader(self, batch_size=256, data_split=0.20):
-        states = np.stack([e.state for e in self.memory if e is not None])
-        actions = np.vstack([e.action for e in self.memory if e is not None])
-        rewards = np.vstack([e.reward for e in self.memory if e is not None])
-        next_states = np.stack([e.next_state for e in self.memory if e is not None])
+        return states
         
-        inputs = np.concatenate((states, actions), axis=-1)
-        delta_state = next_states - states
-        labels = np.concatenate((delta_state, rewards), axis=-1)
-                
-        return inputs, labels
-    
     def return_all(self,):
         return self.memory
-    
+        
     def push_batch(self, batch):
         for i in batch: self.memory.append(i)
         

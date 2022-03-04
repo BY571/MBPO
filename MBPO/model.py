@@ -1,198 +1,114 @@
-from networks import DynamicsModel
+from networks import DynamicsModel, SimpleDynamics
 import torch
 import random
 import numpy as np
 from utils import TorchStandardScaler
+from torch.utils.data import TensorDataset, DataLoader
 
 
-def termination_fn(env_name, obs, act, next_obs, rewards):
+def get_termination_fn(env_name):
     if env_name == "Hopper-v2":
-        assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
+        def termination_fn(obs, act, next_obs, rewards):
+            assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
 
-        height = next_obs[:, 0]
-        angle = next_obs[:, 1]
-        not_done =  np.isfinite(next_obs).all(axis=-1) \
-                    * np.abs(next_obs[:,1:] < 100).all(axis=-1) \
-                    * (height > .7) \
-                    * (np.abs(angle) < .2)
+            height = next_obs[:, 0]
+            angle = next_obs[:, 1]
+            not_done =  np.isfinite(next_obs).all(axis=-1) \
+                        * np.abs(next_obs[:,1:] < 100).all(axis=-1) \
+                        * (height > .7) \
+                        * (np.abs(angle) < .2)
 
-        done = ~not_done
-        done = done[:,None]
-        return done
+            done = ~not_done
+            done = done[:,None]
+            return done
+        return termination_fn
     elif env_name == "Walker2dBulletEnv-v0":
-        assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
+        def termination_fn(obs, act, next_obs, rewards):
+            assert len(obs.shape) == len(next_obs.shape) == len(act.shape) == 2
 
-        height = next_obs[:, 0]
-        angle = next_obs[:, 1]
-        not_done =  (height > 0.8) \
-                    * (height < 2.0) \
-                    * (angle > -1.0) \
-                    * (angle < 1.0)
-        done = ~not_done
-        done = done[:,None]
-        return done
+            height = next_obs[:, 0]
+            angle = next_obs[:, 1]
+            not_done =  (height > 0.8) \
+                        * (height < 2.0) \
+                        * (angle > -1.0) \
+                        * (angle < 1.0)
+            done = ~not_done
+            done = done[:,None]
+            return done
+        return termination_fn
     else:
-        done = torch.zeros(rewards.shape).bool()
-        return done
-        
+        def termination_fn(obs, act, next_obs, rewards):
+            done = torch.zeros(obs.shape[0]).bool()
+            return done
+        return termination_fn
 
-class MBEnsemble():
-    def __init__(self, state_size, action_size, config, device):
-                
+
+class DynamicsModel():
+    def __init__(self, env_name, state_size, action_size, n_trajectories, num_epochs=60, batch_size=512, hidden_size=200, lr=1e-2, device="cpu"):
+        
         self.device = device
-
-        self.probabilistic = config.probabilistic
-        self.n_ensembles = config.ensembles
-
-        self.dynamics_model = DynamicsModel(state_size=state_size,
-                                            action_size=action_size,
-                                            ensemble_size=self.n_ensembles,
-                                            hidden_size=config.hidden_size,
-                                            lr=config.mb_lr,
-                                            device=device).to(device)
-    
-        self.n_rollouts = config.n_rollouts * config.parallel_envs
-        self.rollout_select = config.rollout_select
-        self.elite_size = config.elite_size
-        self.elite_idxs = []
+        self.n_trajectories = n_trajectories
+        self.num_epochs = num_epochs
+        self.batch_size = 512
+        self.dynamics_model = SimpleDynamics(state_size=state_size, action_size=action_size,
+                                             hidden_size=hidden_size, lr=lr, device=device)
         
-        self.max_not_improvements = 5
-        self._current_best = [1e10 for i in range(self.n_ensembles)]
-        self.improvement_threshold = 0.01
-        self.break_counter = 0
-        self.env_name = config.env
+        self.terminate_function = get_termination_fn(env_name=env_name)
         self.scaler = TorchStandardScaler()
         
-    def train(self, inputs, labels, batch_size=256, validation_percentage=0.2):
-        losses = 0
-        epochs_trained = 0
-        self.break_counter = 0
-        break_training = False
+    def fit(self, dynamics_buffer):
         
-        num_validation = int(inputs.shape[0] * validation_percentage)
-        train_inputs, train_labels = inputs[num_validation:], labels[num_validation:]
-        holdout_inputs, holdout_labels = inputs[:num_validation], labels[:num_validation]
-        
-        self.scaler.fit(train_inputs)
-        train_inputs = self.scaler.transform(train_inputs)
-        holdout_inputs = self.scaler.transform(holdout_inputs)
-        
-        holdout_inputs = torch.from_numpy(holdout_inputs).float().to(self.device)
-        holdout_labels = torch.from_numpy(holdout_labels).float().to(self.device)
-        holdout_inputs = holdout_inputs[None, :, :].repeat(self.n_ensembles, 1, 1)
-        holdout_labels = holdout_labels[None, :, :].repeat(self.n_ensembles, 1, 1)
-        
-        num_training_samples = train_inputs.shape[0]
-        while True:
-            train_idx = np.vstack([np.random.permutation(num_training_samples) for _ in range(self.n_ensembles)])
-            
-            self.dynamics_model.train()
-            for start_pos in range(0, num_training_samples, batch_size):
-                idx = train_idx[:, start_pos: start_pos + batch_size]
-                train_input = train_inputs[idx]
-                train_label = train_labels[idx]
-                train_input = torch.from_numpy(train_input).float().to(self.device)
-                train_label = torch.from_numpy(train_label).float().to(self.device)
-                loss = self.dynamics_model.calc_loss(train_input, train_label)
-                self.dynamics_model.optimize(loss)
-            epochs_trained += 1
-                
-            # evaluation
-            self.dynamics_model.eval()
-            with torch.no_grad():
-                val_losses = self.dynamics_model.calc_loss(holdout_inputs, holdout_labels, include_var=False)
-                val_losses = val_losses.detach().cpu().numpy()
-                sorted_loss_idx = np.argsort(losses)
-                self.elite_idxs = sorted_loss_idx[:self.elite_size].tolist()
-                break_training = self.test_break_condition(val_losses)
-                if break_training:
-                    break
-            
-        assert len(val_losses) == self.n_ensembles, f"epoch_losses: {len(val_losses)} =/= {self.n_ensembles}"
-        
-        return val_losses, np.mean(epochs_trained)
+        states, actions, rewards, next_states = dynamics_buffer.sample()
+        # print(states.shape, actions.shape, rewards.shape, next_states.shape)
+        self.scaler.fit(states, actions, rewards, next_states)
+        inputs_v = self.process_dynamics_input(input1=states, input2=actions, input_type="input")
+        targets_v = self.process_dynamics_input(input1=next_states, input2=rewards, input_type="target")
+        dataset = TensorDataset(inputs_v, targets_v)
+        data_loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+
+        print("\n -- Dynamics - Training -- ")
+        episode_losses = []
+        for ep in range(1, self.num_epochs+1):
+            batch_losses = []
+            for (x, y) in data_loader:
+                loss = self.dynamics_model.optimize(x, y)
+                batch_losses.append(loss)
+            #print("Episode: {} | Loss: {}".format(ep, np.mean(batch_losses)))
+            episode_losses.append(np.mean(batch_losses))
+        return np.mean(episode_losses)
+
+    def process_dynamics_input(self, input1, input2, input_type="input"):
+        values = torch.cat((input1, input2), dim=-1)
+        norm_values = self.scaler.transform(values, input_type).to(self.device)
+        return norm_values
     
-    def test_break_condition(self, current_losses):
-        keep_train = False
-        for i in range(len(current_losses)):
-            current_loss = current_losses[i]
-            best_loss = self._current_best[i]
-            improvement = (best_loss - current_loss) / best_loss
-            if improvement > self.improvement_threshold:
-                self._current_best[i] = current_loss
-                keep_train = True
-    
-        if keep_train:
-            self.break_counter = 0
-        else:
-            self.break_counter += 1
-        if self.break_counter >= self.max_not_improvements:
-            return True
-        else:
-            return False
+    def inv_transform_predictions(self, prediction):
+        denormalized_prediction = self.scaler.inverse_transform(prediction)
+        states = denormalized_prediction[:, :-1]
+        rewards = denormalized_prediction[:, -1]
+        return states, rewards
 
-    def run_ensemble_prediction(self, states, actions, batch_size=1024):
-        inputs = np.concatenate((states, actions), axis=-1)
-        inputs = self.scaler.transform(inputs)
-        ensemble_mean, ensemble_var = [], []
-        with torch.no_grad():
-            for i in range(0, inputs.shape[0], batch_size):
-                input = torch.from_numpy(inputs[i:min(i + batch_size, inputs.shape[0])]).float().to(self.device)
-                input = input[None, :, :].repeat([self.n_ensembles, 1, 1])
-                mus, var = self.dynamics_model(input, return_log_var=False)
-                ensemble_mean.append(mus.detach().cpu().numpy())
-                ensemble_var.append(var.detach().cpu().numpy())
-        ensemble_mean = np.hstack(ensemble_mean)
-        ensemble_var = np.hstack(ensemble_var)
-
-        # [ensembles, batch, prediction_shape]
-        assert ensemble_mean.shape == (self.n_ensembles, states.shape[0], states.shape[1] + 1)
-        assert ensemble_var.shape == (self.n_ensembles, states.shape[0], states.shape[1] + 1)
-        return ensemble_mean, ensemble_var
-
-
-    def do_rollouts(self, buffer, env_buffer, policy, kstep):
-        
-        states, _, _, _, _ = env_buffer.sample(self.n_rollouts)
-        states = states.cpu().numpy()
+    def rollout_prediction(self, agent_buffer, dynamics_buffer, policy, rollout_horizon):
+        # sample random starting point for the rollouts
+        states = dynamics_buffer.sample_random_state(self.n_trajectories) # shape [number of trajectories, state size]
+        # to count how many transition tuples get added
         steps_added = []
-        for k in range(kstep):
-            actions = policy.get_action(states)
-            ensemble_means, ensemble_var = self.run_ensemble_prediction(states, actions)
-            ensemble_means[:, :, :-1] += states
-            ensemble_std = np.sqrt(ensemble_var)
-            if self.probabilistic:
-                all_ensemble_predictions = np.random.normal(ensemble_means, ensemble_std)
-            else:
-                all_ensemble_predictions = ensemble_means
-            steps_added.append(len(states))
-            if self.rollout_select == "random":
-                # choose what predictions we select from what ensemble member
-                ensemble_idx = random.choices(self.elite_idxs, k=self.n_rollouts)
-                step_idx = np.arange(states.shape[0])
-                # pick prediction based on ensemble idxs
-                predictions = all_ensemble_predictions[ensemble_idx, step_idx, :]
-            else:
-                predictions = all_ensemble_predictions[self.elite_idxs].mean(0)
-            assert predictions.shape == (self.n_rollouts, states.shape[1] + 1)
-
-            next_states = predictions[:, :-1]
-            rewards = predictions[:, -1]
-            dones = termination_fn(self.env_name, states, actions, next_states, rewards)
-            for (s, a, r, ns, d) in zip(states, actions, rewards, next_states, dones):
-                buffer.add(s, a, r, ns, d)
+        for i in range(rollout_horizon):
+            steps_added.append(states.shape[0])
+            # policy predict actions to take in state
+            actions = policy.get_action(states.cpu().detach().numpy())
+            actions = torch.from_numpy(actions).float().to(self.device)
+            norm_inputs = self.process_dynamics_input(states, actions)
+            predictions = self.dynamics_model(norm_inputs)
+            next_states, rewards = self.inv_transform_predictions(predictions)
+            dones = self.terminate_function(states.cpu().detach().numpy(), actions.cpu().detach().numpy(), next_states.cpu().detach().numpy(), rewards.cpu().detach().numpy())
+            for (s, a, r, ns, d) in zip(states.cpu().detach().numpy(), actions.cpu().detach().numpy(), rewards.cpu().detach().numpy(), next_states.cpu().detach().numpy(), dones):
+                agent_buffer.add(s, a, r, ns, d)
             nonterm_mask = ~dones.squeeze(-1)
             if nonterm_mask.sum() == 0:
                 break
-            states = next_states[nonterm_mask]
-        # calculate epistemic uncertainty ~ variance between the ensembles 
-        # over the course of training ensembles should all predict the same variance -> 0 
-        # model is very certain what will happen
-        variance_over_each_state = all_ensemble_predictions.var(0)
-        whole_batch_uncertainty = variance_over_each_state.var()
-        # calculate mean rollout length
-        mean_rollout_length = sum(steps_added) / self.n_rollouts
-        return whole_batch_uncertainty.item(), mean_rollout_length
+            states = next_states[nonterm_mask].detach()
 
-            
-    
+        # calculate mean rollout length
+        mean_rollout_length = sum(steps_added) / self.n_trajectories
+        return mean_rollout_length

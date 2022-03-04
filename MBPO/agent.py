@@ -97,20 +97,20 @@ class SAC(nn.Module):
             experiences (Tuple[torch.Tensor]): tuple of (s, a, r, s', done) tuples 
             gamma (float): discount factor
         """
-        batch_size = fake_buffer.batch_size
-        real_data_ratio = int(ratio * batch_size)
-        fake_data_ratio = batch_size - real_data_ratio
-        real_experience = real_buffer.sample(real_data_ratio)
-        fake_experience = fake_buffer.sample(fake_data_ratio)
+        # batch_size = fake_buffer.batch_size
+        # real_data_ratio = int(ratio * batch_size)
+        # fake_data_ratio = batch_size - real_data_ratio
+        #real_experience = real_buffer.sample(real_data_ratio)
+        experience = fake_buffer.sample(256)
         
-        real_states, real_actions, real_rewards, real_next_states, real_dones = real_experience
-        fake_states, fake_actions, fake_rewards, fake_next_states, fake_dones = fake_experience
+        #real_states, real_actions, real_rewards, real_next_states, real_dones = real_experience
+        states, actions, rewards, next_states, dones = experience
         
-        states = torch.cat((real_states, fake_states))
-        actions = torch.cat((real_actions, fake_actions))
-        rewards = torch.cat((real_rewards, fake_rewards))
-        next_states = torch.cat((real_next_states, fake_next_states))
-        dones = torch.cat((real_dones, fake_dones))
+        # states = torch.cat((real_states, fake_states))
+        # actions = torch.cat((real_actions, fake_actions))
+        # rewards = torch.cat((real_rewards, fake_rewards))
+        # next_states = torch.cat((real_next_states, fake_next_states))
+        # dones = torch.cat((real_dones, fake_dones))
         # ---------------------------- update actor ---------------------------- #
         current_alpha = copy.deepcopy(self.alpha)
         actor_loss, log_pis = self.calc_policy_loss(states, current_alpha.to(self.device))
